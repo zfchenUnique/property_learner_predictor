@@ -13,6 +13,12 @@ from torch.optim import lr_scheduler
 from utils import *
 from modules import *
 
+def set_debugger():
+    from IPython.core import ultratb
+    import sys
+    sys.excepthook = ultratb.FormattedTB(call_pdb=True)
+set_debugger()
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='Disables CUDA training.')
@@ -105,7 +111,6 @@ else:
 
 train_loader, valid_loader, test_loader, loc_max, loc_min, vel_max, vel_min = load_data(
     args.batch_size, args.suffix)
-
 # Generate off-diagonal interaction graph
 off_diag = np.ones([args.num_atoms, args.num_atoms]) - np.eye(args.num_atoms)
 
@@ -180,7 +185,6 @@ if args.cuda:
 rel_rec = Variable(rel_rec)
 rel_send = Variable(rel_send)
 
-
 def train(epoch, best_val_loss):
     t = time.time()
     nll_train = []
@@ -228,10 +232,11 @@ def train(epoch, best_val_loss):
 
         loss.backward()
         optimizer.step()
-
-        mse_train.append(F.mse_loss(output, target).data[0])
-        nll_train.append(loss_nll.data[0])
-        kl_train.append(loss_kl.data[0])
+        
+        #mse_train.append(F.mse_loss(output, target).data[0])
+        mse_train.append(F.mse_loss(output, target).data.item())
+        nll_train.append(loss_nll.data.item())
+        kl_train.append(loss_kl.data.item())
 
     nll_val = []
     acc_val = []
@@ -260,9 +265,9 @@ def train(epoch, best_val_loss):
         acc = edge_accuracy(logits, relations)
         acc_val.append(acc)
 
-        mse_val.append(F.mse_loss(output, target).data[0])
-        nll_val.append(loss_nll.data[0])
-        kl_val.append(loss_kl.data[0])
+        mse_val.append(F.mse_loss(output, target).data.item())
+        nll_val.append(loss_nll.data.item())
+        kl_val.append(loss_kl.data.item())
 
     print('Epoch: {:04d}'.format(epoch),
           'nll_train: {:.10f}'.format(np.mean(nll_train)),
@@ -329,9 +334,9 @@ def test():
         acc = edge_accuracy(logits, relations)
         acc_test.append(acc)
 
-        mse_test.append(F.mse_loss(output, target).data[0])
-        nll_test.append(loss_nll.data[0])
-        kl_test.append(loss_kl.data[0])
+        mse_test.append(F.mse_loss(output, target).data.item())
+        nll_test.append(loss_nll.data.item())
+        kl_test.append(loss_kl.data.item())
 
         # For plotting purposes
         if args.decoder == 'rnn':
