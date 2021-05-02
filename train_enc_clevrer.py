@@ -13,6 +13,7 @@ from utils import *
 from modules import *
 import pdb
 from clevrer.clevrer_dataset import build_dataloader
+import clevrer.utils as clevrer_utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -70,6 +71,22 @@ parser.add_argument('--ref_track_dir', type=str, default="../../render/output/bo
                 help='directory for reference track annotation')
 parser.add_argument('--num_vis_frm', type=int, default=125,
                 help='Number of visible frames.')
+parser.add_argument('--train_st_idx', type=int, default=0,
+                help='Start index of the training videos.')
+parser.add_argument('--train_ed_idx', type=int, default=100,
+                help='End index of the training videos.')
+parser.add_argument('--val_st_idx', type=int, default=100,
+                help='Start index of the training videos.')
+parser.add_argument('--val_ed_idx', type=int, default=120,
+                help='End index of the training videos.')
+parser.add_argument('--test_st_idx', type=int, default=100,
+                help='Start index of the test videos.')
+parser.add_argument('--test_ed_idx', type=int, default=120,
+                help='End index of the test videos.')
+parser.add_argument('--load_reference_flag', type=int, default=0,
+                help='Load reference videos for prediction.')
+parser.add_argument('--max_prediction_flag', type=int, default=1,
+                help='Load reference videos for prediction.')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -107,9 +124,9 @@ else:
     print("WARNING: No save_folder provided!" +
           "Testing (within this script) will throw an error.")
 
-train_loader = build_dataloader(args, phase='train', sim_st_idx=0, sim_ed_idx=100)
-valid_loader = build_dataloader(args, phase='val', sim_st_idx=100, sim_ed_idx=120)
-test_loader = build_dataloader(args, phase='test', sim_st_idx=100, sim_ed_idx=120)
+train_loader = build_dataloader(args, phase='train', sim_st_idx=args.train_st_idx, sim_ed_idx= args.train_ed_idx)
+valid_loader = build_dataloader(args, phase='val', sim_st_idx=args.val_st_idx, sim_ed_idx=args.val_ed_idx)
+test_loader = build_dataloader(args, phase='test', sim_st_idx=args.test_st_idx, sim_ed_idx=args.test_ed_idx)
 
 if args.encoder == 'mlp':
     model = MLPEncoder(args.num_vis_frm * args.dims+3, args.hidden,
@@ -122,7 +139,6 @@ elif args.encoder == 'cnn':
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_decay,
                                 gamma=args.gamma)
-
 
 if args.cuda:
     model.cuda()
@@ -143,30 +159,24 @@ def train(epoch, best_val_accuracy):
         target_list = []
         for smp in data_list:
             data, target = smp[0], smp[1]
-            num_atoms = data.shape[0]
+            num_atoms = data.shape[1]
             # Generate off-diagonal interaction graph
             off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
             rel_rec = np.array(encode_onehot(np.where(off_diag)[0]), dtype=np.float32)
             rel_send = np.array(encode_onehot(np.where(off_diag)[1]), dtype=np.float32)
             rel_rec = torch.FloatTensor(rel_rec)
             rel_send = torch.FloatTensor(rel_send)
-            data = data.unsqueeze(dim=0)
-            target = target.unsqueeze(dim=0)
             if args.cuda:
                 data, target = data.cuda(), target.cuda()
                 rel_rec = rel_rec.cuda()
                 rel_send = rel_send.cuda()
             optimizer.zero_grad()
             output = model(data, rel_rec, rel_send)
-            output_list.append(output.squeeze(0))
-            target_list.append(target.squeeze(0))
+            output_list.append(output.view(-1, args.num_classes))
+            target_list.append(target.view(-1))
 
         output = torch.cat(output_list, dim=0)
         target = torch.cat(target_list, dim=0)
-
-        # Flatten batch dim
-        output = output.view(-1, args.num_classes)
-        target = target.view(-1)
 
         loss = F.cross_entropy(output, target)
         loss.backward()
@@ -181,6 +191,68 @@ def train(epoch, best_val_accuracy):
 
     model.eval()
     for batch_idx, data_list in enumerate(valid_loader):
+        output_list = []
+        target_list = []
+        with torch.no_grad():
+            for smp_id, smp in enumerate(data_list):
+                data, target, ref2query_list = smp[0], smp[1], smp[2]
+                num_atoms = data.shape[1]
+                # Generate off-diagonal interaction graph
+                off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
+                rel_rec = np.array(encode_onehot(np.where(off_diag)[0]), dtype=np.float32)
+                rel_send = np.array(encode_onehot(np.where(off_diag)[1]), dtype=np.float32)
+                rel_rec = torch.FloatTensor(rel_rec)
+                rel_send = torch.FloatTensor(rel_send)
+                if args.cuda:
+                    data, target = data.cuda(), target.cuda()
+                    rel_rec = rel_rec.cuda()
+                    rel_send = rel_send.cuda()
+                output = model(data, rel_rec, rel_send)
+                if args.max_prediction_flag:
+                    output_pool = clevrer_utils.max_pool_prediction(output, num_atoms, ref2query_list)
+                    output_list.append(output_pool.view(-1, args.num_classes))
+                    target_list.append(target[0])
+                else:
+                    output_list.append(output.view(-1, args.num_classes))
+                    target_list.append(target.view(-1))
+
+            output = torch.cat(output_list, dim=0)
+            target = torch.cat(target_list, dim=0)
+
+            loss = F.cross_entropy(output, target)
+
+            pred = output.data.max(1, keepdim=True)[1]
+            correct = pred.eq(target.data.view_as(pred)).cpu().sum()
+            acc = correct / pred.size(0)
+
+            loss_val.append(loss.item())
+            acc_val.append(acc)
+    print('Epoch: {:04d}'.format(epoch),
+          'loss_train: {:.10f}'.format(np.mean(loss_train)),
+          'acc_train: {:.10f}'.format(np.mean(acc_train)),
+          'loss_val: {:.10f}'.format(np.mean(loss_val)),
+          'acc_val: {:.10f}'.format(np.mean(acc_val)),
+          'time: {:.4f}s'.format(time.time() - t))
+    if args.save_folder and np.mean(acc_val) > best_val_accuracy:
+        torch.save(model.state_dict(), model_file)
+        print('Best model so far, saving...')
+        print('Epoch: {:04d}'.format(epoch),
+              'loss_train: {:.10f}'.format(np.mean(loss_train)),
+              'acc_train: {:.10f}'.format(np.mean(acc_train)),
+              'loss_val: {:.10f}'.format(np.mean(loss_val)),
+              'acc_val: {:.10f}'.format(np.mean(acc_val)),
+              'time: {:.4f}s'.format(time.time() - t), file=log)
+        log.flush()
+    return np.mean(acc_val)
+
+
+def test():
+    t = time.time()
+    loss_test = []
+    acc_test = []
+    model.eval()
+    model.load_state_dict(torch.load(model_file))
+    for batch_idx, data_list in enumerate(test_loader):
         output_list = []
         target_list = []
         with torch.no_grad():
@@ -215,70 +287,21 @@ def train(epoch, best_val_accuracy):
             correct = pred.eq(target.data.view_as(pred)).cpu().sum()
             acc = correct / pred.size(0)
 
-            loss_val.append(loss.item())
-            acc_val.append(acc)
-
-    print('Epoch: {:04d}'.format(epoch),
-          'loss_train: {:.10f}'.format(np.mean(loss_train)),
-          'acc_train: {:.10f}'.format(np.mean(acc_train)),
-          'loss_val: {:.10f}'.format(np.mean(loss_val)),
-          'acc_val: {:.10f}'.format(np.mean(acc_val)),
-          'time: {:.4f}s'.format(time.time() - t))
-    if args.save_folder and np.mean(acc_val) > best_val_accuracy:
-        torch.save(model.state_dict(), model_file)
-        print('Best model so far, saving...')
-        print('Epoch: {:04d}'.format(epoch),
-              'loss_train: {:.10f}'.format(np.mean(loss_train)),
-              'acc_train: {:.10f}'.format(np.mean(acc_train)),
-              'loss_val: {:.10f}'.format(np.mean(loss_val)),
-              'acc_val: {:.10f}'.format(np.mean(acc_val)),
-              'time: {:.4f}s'.format(time.time() - t), file=log)
-        log.flush()
-    return np.mean(acc_val)
-
-
-def test():
-    t = time.time()
-    loss_test = []
-    acc_test = []
-    model.eval()
-    model.load_state_dict(torch.load(model_file))
-    for batch_idx, (data, target) in enumerate(test_loader):
-        if args.cuda:
-            data, target = data.cuda(), target.cuda()
-        data, target = Variable(data, volatile=True), Variable(
-            target, volatile=True)
-
-        # Limit to same length as train sequence
-        data = data[:, :, :args.timesteps, :].contiguous()
-
-        output = model(data, rel_rec, rel_send)
-        # Flatten batch dim
-        output = output.view(-1, args.num_classes)
-        target = target.view(-1)
-
-        loss = F.cross_entropy(output, target)
-
-        pred = output.data.max(1, keepdim=True)[1]
-        correct = pred.eq(target.data.view_as(pred)).cpu().sum()
-        acc = correct / pred.size(0)
-
-        loss_test.append(loss.item())
-        acc_test.append(acc)
-    print('--------------------------------')
-    print('--------Testing-----------------')
-    print('--------------------------------')
-    print('loss_test: {:.10f}'.format(np.mean(loss_test)),
-          'acc_test: {:.10f}'.format(np.mean(acc_test)))
-    if args.save_folder:
-        print('--------------------------------', file=log)
-        print('--------Testing-----------------', file=log)
-        print('--------------------------------', file=log)
-        print('loss_test: {:.10f}'.format(np.mean(loss_test)),
-              'acc_test: {:.10f}'.format(np.mean(acc_test)), file=log)
-        log.flush()
-    return np.mean(acc_test)
-
+            loss_test.append(loss.item())
+            acc_test.append(acc)
+            print('--------------------------------')
+            print('--------Testing-----------------')
+            print('--------------------------------')
+            print('loss_test: {:.10f}'.format(np.mean(loss_test)),
+                  'acc_test: {:.10f}'.format(np.mean(acc_test)))
+            if args.save_folder:
+                print('--------------------------------', file=log)
+                print('--------Testing-----------------', file=log)
+                print('--------------------------------', file=log)
+                print('loss_test: {:.10f}'.format(np.mean(loss_test)),
+                      'acc_test: {:.10f}'.format(np.mean(acc_test)), file=log)
+                log.flush()
+            return np.mean(acc_test)
 
 # Train model
 t_total = time.time()

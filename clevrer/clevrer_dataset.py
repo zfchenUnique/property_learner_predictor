@@ -1,0 +1,190 @@
+import argparse
+import json
+import numpy as np
+import os
+import pdb
+from torch.utils.data import DataLoader, Dataset
+import torch
+
+def get_one_hot_for_shape(shape_str):
+    if shape_str=='sphere':
+        return np.array([1, 0, 0])
+    elif shape_str =='cylinder':
+        return np.array([0, 1, 0])
+    elif shape_str =='cube':
+        return np.array([0, 0, 1])
+
+def load_obj_track(track_path,  num_vis_frm, pad_value=-1):
+    track_ori = np.load(track_path)
+    track_ori = np.transpose(track_ori, [1, 0, 2])
+    track_pad = track_ori
+    obj_num, time_step, box_dim = track_ori.shape
+    pad_pos = track_ori == np.array([0, 0, 480, 320])
+    pad_obj_frm = np.sum(pad_pos, axis=2)==4 
+    track_pad[pad_obj_frm] = pad_value 
+
+    track = -1 * np.ones((obj_num, num_vis_frm, box_dim)) 
+    frm_num = min(time_step, num_vis_frm)
+    track[:, :frm_num] = track_pad[:, :frm_num]
+    vel = np.zeros((obj_num, num_vis_frm, box_dim))
+    vel[:,1:frm_num] = track[:,1:frm_num] - track[:, : frm_num-1]
+    track = np.reshape(track, [obj_num, -1])
+    vel = np.reshape(vel, [obj_num, -1])
+    return track, vel
+
+def get_edge_rel(obj_list, visible_obj_list=None):
+    """
+    edge type: 0, 1, 2 for uncharged, same charge and opposite charge
+    edge size: num_obj *(num_obj-1) 
+    """
+    num_obj = len(obj_list)
+    edge = np.zeros((num_obj, num_obj ))
+    charge_id_list = [ obj_id for obj_id, obj_info in enumerate(obj_list) if obj_info['charge']!=0]
+    for id1 in charge_id_list:
+        for id2 in charge_id_list:
+            if id1==id2:
+                continue
+            if visible_obj_list is not None:
+                if (id1 not in visible_obj_list) or (id2 not in visible_obj_list):
+                    continue
+            if obj_list[id1]['charge']==obj_list[id2]['charge']:
+                edge[id1, id2] = 1
+                edge[id2, id1] = 1
+            else:
+                edge[id1, id2] = 2
+                edge[id2, id1] = 2
+    num_atoms = len(obj_list)
+    # Exclude self edges
+    off_diag_idx = np.ravel_multi_index(
+        np.where(np.ones((num_atoms, num_atoms)) - np.eye(num_atoms)),
+        [num_atoms, num_atoms])
+    edge = np.reshape(edge, -1)[off_diag_idx]
+    return edge
+
+class clevrerDataset(Dataset):
+    def __init__(self, args, sim_st_idx, sim_ed_idx):
+        self.ann_dir = args.ann_dir
+        self.track_dir = args.track_dir
+        self.ref_dir = args.ref_dir
+        self.ref_track_dir = args.ref_track_dir
+        self.ref_num = args.ref_num
+        self.num_vis_frm = args.num_vis_frm
+        self.sim_list = list(range(sim_st_idx, sim_ed_idx))
+        self.sim_st_idx = sim_st_idx
+        self.sim_ed_idx = sim_ed_idx
+        self.args = args
+
+    def __len__(self):
+        return self.sim_ed_idx - self.sim_st_idx 
+
+    def __getitem__(self, index):
+        """
+        obj_ftr: concatenate ( shape_one_hot, loc, vel )
+        edge: of shape (num_obj * (num_obj-1))
+        """
+        sim_id = self.sim_list[index]
+        sim_str = 'sim_%05d'%(sim_id)
+        ann_path = os.path.join(self.ann_dir, sim_str, 'annotations', 'annotation.json')
+        with open(ann_path, 'r') as fh:
+            ann = json.load(fh)
+        shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
+        shape_mat = np.array(shape_emb)
+        track_path = os.path.join(self.track_dir, sim_str+'.npy')
+        track, vel = load_obj_track(track_path, self.num_vis_frm)
+        obj_ftr = np.concatenate([shape_mat, track, vel], axis=1)
+        edge = get_edge_rel(ann['config'])
+        obj_ftr = obj_ftr.astype(np.float32)
+        edge = edge.astype(np.long)
+        obj_ftr = torch.from_numpy(obj_ftr)
+        edge = torch.from_numpy(edge)
+
+        if self.args.load_reference_flag: 
+            ref_dir = os.path.join(self.ref_dir, sim_str)
+            obj_ftr_list, edge_list, ref2query_list = load_reference_ftr(ref_dir, self.ref_track_dir, sim_str, ann, self.args)
+            obj_ftr_list.insert(0, obj_ftr)
+            edge_list.insert(0, edge)
+            obj_ftr = torch.stack(obj_ftr_list, dim=0)
+            edge = torch.stack(edge_list, dim=0)
+        else:
+            ref2query_list = None
+            obj_ftr = obj_ftr.unsqueeze(dim=0)
+            edge = edge.unsqueeze(dim=0)
+        return obj_ftr, edge, ref2query_list
+
+def map_ref_to_query(obj_list_query, obj_list_ref):
+    ref2query ={}
+    for idx1, obj_info1 in enumerate(obj_list_ref):
+        for idx2, obj_info2 in enumerate(obj_list_query):
+            if obj_info1['color']==obj_info2['color'] and obj_info1['shape']==obj_info2['shape'] and obj_info1['material']==obj_info2['material']:
+                ref2query[idx1]=idx2
+    assert len(ref2query)==len(obj_list_ref), "every reference object should find their corresponding objects"
+    return ref2query
+
+def load_reference_ftr(ref_dir, ref_track_dir, sim_str, ann_query, args):
+    sub_dir_list = os.listdir(ref_dir)
+    sub_dir_list = sorted(sub_dir_list)
+    obj_ftr_list = []
+    edge_list = []
+    ref2query_list = []
+    for idx, sub_dir in enumerate(sub_dir_list):
+        full_ann_dir = os.path.join(ref_dir, sub_dir) 
+        ann_path = os.path.join(ref_dir, sub_dir, 'annotations', 'annotation.json')
+        if not os.path.isfile(ann_path):
+            print("Warning! Fail to find %s\n"%(ann_path))
+            continue 
+        with open(ann_path, 'r') as fh:
+            ann = json.load(fh)
+        ref2query = map_ref_to_query(ann_query['config'], ann['config']) 
+        visible_list = list(ref2query.values())
+        shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
+        shape_mat = np.array(shape_emb)
+        track_path = os.path.join(ref_track_dir, sim_str+ '_' + sub_dir  +'.npy')
+        track, vel = load_obj_track(track_path, args.num_vis_frm)
+
+        obj_ftr = np.concatenate([shape_mat, track, vel], axis=1)
+        # align the reference objects with the target object
+        obj_num_ori = len(ann_query['config'])
+        obj_ftr_pad  = -1 * np.ones((obj_num_ori, obj_ftr.shape[1]), dtype=np.float32)
+        for idx1, idx2 in ref2query.items():
+            obj_ftr_pad[idx2] = obj_ftr[idx1]
+        # Only shows the labels for the visible objects
+        edge = get_edge_rel(ann_query['config'], visible_list)
+        obj_ftr_pad = obj_ftr_pad.astype(np.float32)
+        edge = edge.astype(np.long)
+        obj_ftr_pad = torch.from_numpy(obj_ftr_pad)
+        edge = torch.from_numpy(edge)
+        obj_ftr_list.append(obj_ftr_pad)
+        edge_list.append(edge)
+        ref2query_list.append(ref2query)
+    return obj_ftr_list, edge_list, ref2query_list
+
+def collect_fun(data_list):
+    return data_list
+
+def build_dataloader(args, phase='train', sim_st_idx=0, sim_ed_idx=100):
+    shuffle_flag = True if phase=='train' else False
+    dataset = clevrerDataset(args, sim_st_idx, sim_ed_idx)
+    data_loader = DataLoader(dataset,  num_workers=args.num_workers, batch_size=args.batch_size, shuffle=shuffle_flag, collate_fn=collect_fun)
+    return data_loader
+
+if __name__=='__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--num_workers', type=int, default=0,
+                    help='Number of workers for the dataset.')
+    parser.add_argument('--ann_dir', type=str, default="../../../render/output/causal_sim_v9_3_1",
+                    help='directory for target video annotation')
+    parser.add_argument('--ref_dir', type=str, default="../../../render/output/reference_v9_3_1",
+                    help='directory for reference video annotation.')
+    parser.add_argument('--ref_num', type=int, default=4,
+            help='number of reference videos for a target video')
+    parser.add_argument('--batch_size', type=int, default=2,  help='')
+    parser.add_argument('--track_dir', type=str, default="../../../render/output/box_causal_sim_v9_3_1",
+                    help='directory for target track annotation')
+    parser.add_argument('--ref_track_dir', type=str, default="../../../render/output/box_reference_v9",
+                    help='directory for reference track annotation')
+    parser.add_argument('--num_vis_frm', type=int, default=125,
+                    help='Number of visible frames.')
+    parser.add_argument('--load_reference_flag', type=int, default=0,
+                    help='Load reference videos for prediction.')
+    args = parser.parse_args()
+    train_loader = build_dataloader(args) 
