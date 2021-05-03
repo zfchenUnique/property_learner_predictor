@@ -15,6 +15,9 @@ import pdb
 from clevrer.clevrer_dataset import build_dataloader
 import clevrer.utils as clevrer_utils
 
+# A pre-define class weight for class balance during calculating loss
+CLASS_WEIGHT=torch.FloatTensor([0.0176, 1, 0.75])
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='Disables CUDA training.')
@@ -97,6 +100,7 @@ np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
+    CLASS_WEIGHT = CLASS_WEIGHT.cuda()
 
 def set_debugger():
     from IPython.core import ultratb
@@ -153,6 +157,7 @@ def train(epoch, best_val_accuracy):
     acc_val = []
     model.train()
     scheduler.step()
+    monitor = clevrer_utils.monitor_initialization(args)
     for batch_idx, data_list in enumerate(train_loader):
         # since video may be with different object numbers, feed it one by one
         output_list = []
@@ -174,11 +179,12 @@ def train(epoch, best_val_accuracy):
             output = model(data, rel_rec, rel_send)
             output_list.append(output.view(-1, args.num_classes))
             target_list.append(target.view(-1))
+            monitor, acc_list = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor)
 
         output = torch.cat(output_list, dim=0)
         target = torch.cat(target_list, dim=0)
 
-        loss = F.cross_entropy(output, target)
+        loss = F.cross_entropy(output, target, weight=CLASS_WEIGHT)
         loss.backward()
         optimizer.step()
 
@@ -188,8 +194,10 @@ def train(epoch, best_val_accuracy):
 
         loss_train.append(loss.item())
         acc_train.append(acc)
+    acc_tr = clevrer_utils.print_monitor(monitor, args.num_classes)
 
     model.eval()
+    monitor = clevrer_utils.monitor_initialization(args)
     for batch_idx, data_list in enumerate(valid_loader):
         output_list = []
         target_list = []
@@ -219,34 +227,38 @@ def train(epoch, best_val_accuracy):
             output = torch.cat(output_list, dim=0)
             target = torch.cat(target_list, dim=0)
 
-            loss = F.cross_entropy(output, target)
+            loss = F.cross_entropy(output, target, weight=CLASS_WEIGHT)
 
             pred = output.data.max(1, keepdim=True)[1]
             correct = pred.eq(target.data.view_as(pred)).cpu().sum()
             acc = correct*1.0 / pred.size(0)
+            monitor, acc_list = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor)
 
             loss_val.append(loss.item())
             acc_val.append(acc)
+    acc_vl = clevrer_utils.print_monitor(monitor, args.num_classes)
     print('Epoch: {:04d}'.format(epoch),
           'loss_train: {:.10f}'.format(np.mean(loss_train)),
-          'acc_train: {:.10f}'.format(np.mean(acc_train)),
+          'acc_train: {:.10f}'.format(acc_tr),
           'loss_val: {:.10f}'.format(np.mean(loss_val)),
-          'acc_val: {:.10f}'.format(np.mean(acc_val)),
+          'acc_val: {:.10f}'.format(acc_vl),
           'time: {:.4f}s'.format(time.time() - t))
-    if args.save_folder and np.mean(acc_val) > best_val_accuracy:
+    if args.save_folder and acc_vl > best_val_accuracy:
         torch.save(model.state_dict(), model_file)
         print('Best model so far, saving...')
         print('Epoch: {:04d}'.format(epoch),
               'loss_train: {:.10f}'.format(np.mean(loss_train)),
-              'acc_train: {:.10f}'.format(np.mean(acc_train)),
+              'acc_train: {:.10f}'.format(acc_tr),
               'loss_val: {:.10f}'.format(np.mean(loss_val)),
-              'acc_val: {:.10f}'.format(np.mean(acc_val)),
+              'acc_val: {:.10f}'.format(acc_vl),
               'time: {:.4f}s'.format(time.time() - t), file=log)
         log.flush()
-    return np.mean(acc_val)
+    #return np.mean(acc_val)
+    return acc_vl
 
 
 def test():
+    monitor = clevrer_utils.monitor_initialization(args)
     t = time.time()
     loss_test = []
     acc_test = []
@@ -284,11 +296,12 @@ def test():
             output = output.view(-1, args.num_classes)
             target = target.view(-1)
 
-            loss = F.cross_entropy(output, target)
+            loss = F.cross_entropy(output, target, weight=CLASS_WEIGHT)
 
             pred = output.data.max(1, keepdim=True)[1]
             correct = pred.eq(target.data.view_as(pred)).cpu().sum()
             acc = correct / pred.size(0)
+            monitor, acc_list = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor)
 
             loss_test.append(loss.item())
             acc_test.append(acc)
@@ -297,6 +310,7 @@ def test():
     print('--------------------------------')
     print('loss_test: {:.10f}'.format(np.mean(loss_test)),
           'acc_test: {:.10f}'.format(np.mean(acc_test)))
+    acc = clevrer_utils.print_monitor(monitor, args.num_classes)
     if args.save_folder:
         print('--------------------------------', file=log)
         print('--------Testing-----------------', file=log)

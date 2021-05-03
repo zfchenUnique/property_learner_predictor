@@ -15,6 +15,8 @@ import pdb
 from clevrer.clevrer_dataset import build_dataloader
 import clevrer.utils as clevrer_utils
 
+CLASS_WEIGHT=torch.FloatTensor([0.0176, 1, 0.75])
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='Disables CUDA training.')
@@ -97,6 +99,7 @@ np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
+    CLASS_WEIGHT = CLASS_WEIGHT.cuda()
 
 def set_debugger():
     from IPython.core import ultratb
@@ -124,6 +127,7 @@ elif args.encoder == 'cnn':
                        args.dropout, args.factor)
 
 def test():
+    monitor = clevrer_utils.monitor_initialization(args)
     t = time.time()
     loss_test = []
     acc_test = []
@@ -161,11 +165,12 @@ def test():
             output = output.view(-1, args.num_classes)
             target = target.view(-1)
 
-            loss = F.cross_entropy(output, target)
-
+            loss = F.cross_entropy(output, target, weight=CLASS_WEIGHT)
+            
             pred = output.data.max(1, keepdim=True)[1]
             correct = pred.eq(target.data.view_as(pred)).cpu().sum()
             acc = correct*1.0 / pred.size(0)
+            monitor, acc_list = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor)
 
             loss_test.append(loss.item())
             acc_test.append(acc)
@@ -174,6 +179,7 @@ def test():
     print('--------------------------------')
     print('loss_test: {:.10f}'.format(np.mean(loss_test)),
           'acc_test: {:.10f}'.format(np.mean(acc_test)))
+    acc = clevrer_utils.print_monitor(monitor, args.num_classes)
     if args.save_folder:
         print('--------------------------------', file=log)
         print('--------Testing-----------------', file=log)

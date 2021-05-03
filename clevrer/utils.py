@@ -3,6 +3,26 @@ import pdb
 import torch
 import numpy as np
 
+def print_monitor(monitor, num_classes):
+    acc_list =  []
+    print('class accuracy: ')
+    for c_id in range(num_classes):
+        total = monitor['%d_count'%c_id]
+        correct = monitor['%d_acc'%c_id]
+        acc = correct / total
+        print('class: %d, acc: %1f\n'%(c_id, acc)) 
+        acc_list.append(acc)
+    acc = np.mean(acc_list)
+    print('class average acc: %1f\n'%(acc)) 
+    return acc
+
+def monitor_initialization(args):
+    monitor = {}
+    for cls_id in range(args.num_classes):
+        monitor['%d_count'%cls_id] = 0.0
+        monitor['%d_acc'%cls_id] = 0.0
+    return monitor
+
 def max_pool_prediction(output, num_obj, ref2query_list):
     pad_val = torch.min(output) - 1
     ref_num = len(ref2query_list)
@@ -24,3 +44,19 @@ def max_pool_prediction(output, num_obj, ref2query_list):
         output[ref_id+1] += mask_tensor.unsqueeze(dim=1)
     output, output_index = torch.max(output, dim=0, keepdim=True)
     return output
+
+def compute_acc_by_class(output, target, num_classes, monitor):
+    acc_list = []
+    for c_id in range(num_classes):
+        ele_idx = (target.view(-1)==c_id).nonzero().squeeze(dim=1)
+        if ele_idx.shape[0]<=0:
+            continue
+        output_c = torch.index_select(output.view(-1, num_classes), 0, ele_idx)
+        target_c =  torch.index_select(target.view(-1), 0, ele_idx)
+        pred = output_c.data.max(1, keepdim=True)[1]
+        correct = pred.eq(target_c.data.view_as(pred)).cpu().sum()
+        monitor['%d_count'%c_id] += pred.size(0)
+        monitor['%d_acc'%c_id] += correct
+        acc = correct*1.0 / pred.size(0)
+        acc_list.append(acc)
+    return monitor, acc_list
