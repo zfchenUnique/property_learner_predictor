@@ -257,7 +257,7 @@ def test():
         target_list = []
         with torch.no_grad():
             for smp_id, smp in enumerate(data_list):
-                data, target = smp[0], smp[1]
+                data, target, ref2query_list = smp[0], smp[1], smp[2]
                 num_atoms = data.shape[0]
                 # Generate off-diagonal interaction graph
                 off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
@@ -265,16 +265,19 @@ def test():
                 rel_send = np.array(encode_onehot(np.where(off_diag)[1]), dtype=np.float32)
                 rel_rec = torch.FloatTensor(rel_rec)
                 rel_send = torch.FloatTensor(rel_send)
-                data = data.unsqueeze(dim=0)
-                target = target.unsqueeze(dim=0)
                 if args.cuda:
                     data, target = data.cuda(), target.cuda()
                     rel_rec = rel_rec.cuda()
                     rel_send = rel_send.cuda()
                 output = model(data, rel_rec, rel_send)
-                output_list.append(output.squeeze(0))
-                target_list.append(target.squeeze(0))
 
+                if args.max_prediction_flag:
+                    output_pool = clevrer_utils.max_pool_prediction(output, num_atoms, ref2query_list)
+                    output_list.append(output_pool.view(-1, args.num_classes))
+                    target_list.append(target[0])
+                else:
+                    output_list.append(output.view(-1, args.num_classes))
+                    target_list.append(target.view(-1))
             output = torch.cat(output_list, dim=0)
             target = torch.cat(target_list, dim=0)
             # Flatten batch dim
