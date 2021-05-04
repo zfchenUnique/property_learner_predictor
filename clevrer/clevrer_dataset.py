@@ -5,6 +5,7 @@ import os
 import pdb
 from torch.utils.data import DataLoader, Dataset
 import torch
+import glob
 
 def get_one_hot_for_shape(shape_str):
     if shape_str=='sphere':
@@ -28,6 +29,32 @@ def load_obj_track(track_path,  num_vis_frm, pad_value=-1):
     track[:, :frm_num] = track_pad[:, :frm_num]
     vel = np.zeros((obj_num, num_vis_frm, box_dim))
     vel[:,1:frm_num] = track[:,1:frm_num] - track[:, : frm_num-1]
+    track = np.reshape(track, [obj_num, -1])
+    vel = np.reshape(vel, [obj_num, -1])
+    return track, vel
+
+def sample_obj_track(motion, num_vis_frm, sample_every):
+    obj_track_list = []
+    for idx, tmp_m in enumerate(motion):
+        if idx % sample_every !=0:
+            continue
+        loc_list = []
+        for obj_id, m_info in enumerate(tmp_m):
+            loc = m_info['location']
+            loc_list.append(loc)
+        obj_track_list.append(loc_list)
+        if len(obj_track_list) >= num_vis_frm:
+            break
+    track_ori = np.array(obj_track_list)
+    track_ori = np.transpose(track_ori, [1, 0, 2])
+    obj_num, time_step, loc_dim = track_ori.shape
+    frm_num = min(time_step, num_vis_frm)
+    track = -1 * np.ones((obj_num, num_vis_frm, loc_dim)) 
+    track[:, :frm_num] = track_ori[:, :frm_num]
+    vel = np.zeros((obj_num, num_vis_frm, loc_dim))
+    vel[:,1:frm_num] = track[:,1:frm_num] - track[:, : frm_num-1]
+    track = track[:,:,:2]
+    vel = vel[:, :, :2]
     track = np.reshape(track, [obj_num, -1])
     vel = np.reshape(vel, [obj_num, -1])
     return track, vel
@@ -78,6 +105,43 @@ class clevrerDataset(Dataset):
         return self.sim_ed_idx - self.sim_st_idx 
 
     def __getitem__(self, index):
+        if self.args.sim_data_flag:
+            return self.__getitem_sim__(index)
+        else:
+            return self.__getitem_render__(index)
+
+    def __getitem_sim__(self, index):
+        """
+        obj_ftr: concatenate ( shape_one_hot, loc, vel )
+        edge: of shape (num_obj * (num_obj-1))
+        """
+        sim_id = self.sim_list[index] 
+        sim_str = 'sim_%05d'%(sim_id)
+        ann_path = os.path.join(self.ann_dir, sim_str + '.json')
+        with open(ann_path, 'r') as fh:
+            ann = json.load(fh)
+        shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
+        shape_mat = np.array(shape_emb)
+        track, vel = sample_obj_track(ann['motion'], self.args.num_vis_frm, self.args.sample_every)
+        obj_ftr = np.concatenate([shape_mat, track, vel], axis=1)
+        edge = get_edge_rel(ann['config'])
+        obj_ftr = obj_ftr.astype(np.float32)
+        edge = edge.astype(np.long)
+        obj_ftr = torch.from_numpy(obj_ftr)
+        edge = torch.from_numpy(edge)
+        if self.args.load_reference_flag: 
+            obj_ftr_list, edge_list, ref2query_list = load_reference_ftr_sim(self.ref_dir, sim_str, ann, self.args)
+            obj_ftr_list.insert(0, obj_ftr)
+            edge_list.insert(0, edge)
+            obj_ftr = torch.stack(obj_ftr_list, dim=0)
+            edge = torch.stack(edge_list, dim=0)
+        else:
+            ref2query_list = None
+            obj_ftr = obj_ftr.unsqueeze(dim=0)
+            edge = edge.unsqueeze(dim=0)
+        return obj_ftr, edge, ref2query_list
+
+    def __getitem_render__(self, index):
         """
         obj_ftr: concatenate ( shape_one_hot, loc, vel )
         edge: of shape (num_obj * (num_obj-1))
@@ -158,6 +222,41 @@ def load_reference_ftr(ref_dir, ref_track_dir, sim_str, ann_query, args):
         ref2query_list.append(ref2query)
     return obj_ftr_list, edge_list, ref2query_list
 
+def load_reference_ftr_sim(ref_dir, sim_str, ann_query, args):
+    fn_name = os.path.join(ref_dir, sim_str+'_*.json')
+    fn_list = glob.glob(fn_name)
+    fn_list = sorted(fn_list)
+    obj_ftr_list = []
+    edge_list = []
+    ref2query_list = []
+    for idx, fn in enumerate(fn_list):
+        with open(fn, 'r') as fh:
+            ann = json.load(fh)
+        ref2query = map_ref_to_query(ann_query['config'], ann['config']) 
+        visible_list = list(ref2query.values())
+        shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
+        shape_mat = np.array(shape_emb)
+        track, vel = sample_obj_track(ann['motion'], args.num_vis_frm, args.sample_every)
+
+        obj_ftr = np.concatenate([shape_mat, track, vel], axis=1)
+        # align the reference objects with the target object
+        obj_num_ori = len(ann_query['config'])
+        obj_ftr_pad  = -1 * np.ones((obj_num_ori, obj_ftr.shape[1]), dtype=np.float32)
+        for idx1, idx2 in ref2query.items():
+            obj_ftr_pad[idx2] = obj_ftr[idx1]
+        # Only shows the labels for the visible objects
+        edge = get_edge_rel(ann_query['config'], visible_list)
+        obj_ftr_pad = obj_ftr_pad.astype(np.float32)
+        edge = edge.astype(np.long)
+        obj_ftr_pad = torch.from_numpy(obj_ftr_pad)
+        edge = torch.from_numpy(edge)
+        obj_ftr_list.append(obj_ftr_pad)
+        edge_list.append(edge)
+        ref2query_list.append(ref2query)
+    return obj_ftr_list, edge_list, ref2query_list
+
+
+
 def collect_fun(data_list):
     return data_list
 
@@ -186,5 +285,7 @@ if __name__=='__main__':
                     help='Number of visible frames.')
     parser.add_argument('--load_reference_flag', type=int, default=0,
                     help='Load reference videos for prediction.')
+    parser.add_argument('--sim_data_flag', type=int, default=1,
+                    help='Flag to use simulation data.')
     args = parser.parse_args()
-    train_loader = build_dataloader(args) 
+    train_loader = build_dataloader(args)

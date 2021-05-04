@@ -90,6 +90,10 @@ parser.add_argument('--load_reference_flag', type=int, default=0,
                 help='Load reference videos for prediction.')
 parser.add_argument('--max_prediction_flag', type=int, default=1,
                 help='Load reference videos for prediction.')
+parser.add_argument('--sim_data_flag', type=int, default=1,
+                help='Flag to use simulation data.')
+parser.add_argument('--sample_every', type=int, default=10,
+                help='Sampling rate on simulation data.')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
