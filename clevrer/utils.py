@@ -9,7 +9,7 @@ def print_monitor(monitor, num_classes):
     for c_id in range(num_classes):
         total = monitor['%d_count'%c_id]
         correct = monitor['%d_acc'%c_id]
-        acc = correct / total
+        acc = correct / max(total, 0.000001)
         print('class: %d, acc: %1f\n'%(c_id, acc)) 
         acc_list.append(acc)
     acc = np.mean(acc_list)

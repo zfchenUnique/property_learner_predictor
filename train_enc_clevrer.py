@@ -198,6 +198,9 @@ def train(epoch, best_val_accuracy):
 
         loss_train.append(loss.item())
         acc_train.append(acc)
+        if batch_idx % 20==0:
+            print('Training: batch id %d\n'%(batch_idx))
+            acc_tr = clevrer_utils.print_monitor(monitor, args.num_classes)
     acc_tr = clevrer_utils.print_monitor(monitor, args.num_classes)
 
     model.eval()
