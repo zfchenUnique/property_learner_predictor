@@ -37,6 +37,10 @@ parser.add_argument('--max_prediction_flag', type=int, default=1,
                 help='Load reference videos for prediction.')
 parser.add_argument('--num-classes', type=int, default=3,
                     help='Number of edge types.')
+parser.add_argument('--sim_data_flag', type=int, default=1,
+                help='Flag to use simulation data.')
+parser.add_argument('--sample_every', type=int, default=10,
+                help='Sampling rate on simulation data.')
 
 args = parser.parse_args()
 train_loader = build_dataloader(args, phase='train', sim_st_idx=args.train_st_idx, sim_ed_idx= args.train_ed_idx)

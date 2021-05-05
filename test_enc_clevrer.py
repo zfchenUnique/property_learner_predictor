@@ -89,6 +89,10 @@ parser.add_argument('--load_reference_flag', type=int, default=0,
                 help='Load reference videos for prediction.')
 parser.add_argument('--max_prediction_flag', type=int, default=1,
                 help='Load reference videos for prediction.')
+parser.add_argument('--sim_data_flag', type=int, default=1,
+                help='Flag to use simulation data.')
+parser.add_argument('--sample_every', type=int, default=10,
+                help='Sampling rate on simulation data.')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -119,7 +123,7 @@ pickle.dump({'args': args}, open(meta_file, "wb"))
 test_loader = build_dataloader(args, phase='test', sim_st_idx=args.test_st_idx, sim_ed_idx=args.test_ed_idx)
 
 if args.encoder == 'mlp':
-    model = MLPEncoder(args.num_vis_frm * args.dims+3, args.hidden,
+    model = MLPEncoder(args.num_vis_frm * args.dims, args.hidden,
                        args.edge_types,
                        args.dropout, args.factor)
 elif args.encoder == 'cnn':
@@ -138,7 +142,7 @@ def test():
         target_list = []
         with torch.no_grad():
             for smp_id, smp in enumerate(data_list):
-                data, target, ref2query_list = smp[0], smp[1], smp[2]
+                data, target, ref2query_list, sim_id = smp[0], smp[1], smp[2], smp[3]
                 num_atoms = data.shape[1]
                 # Generate off-diagonal interaction graph
                 off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
@@ -159,6 +163,7 @@ def test():
                 else:
                     output_list.append(output.view(-1, args.num_classes))
                     target_list.append(target.view(-1))
+                pdb.set_trace()
             output = torch.cat(output_list, dim=0)
             target = torch.cat(target_list, dim=0)
             # Flatten batch dim

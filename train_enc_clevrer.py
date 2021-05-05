@@ -16,7 +16,7 @@ from clevrer.clevrer_dataset import build_dataloader
 import clevrer.utils as clevrer_utils
 
 # A pre-define class weight for class balance during calculating loss
-CLASS_WEIGHT=torch.FloatTensor([0.0176, 1, 0.75])
+CLASS_WEIGHT=torch.FloatTensor([0.0253, 0.9516, 1.0])
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -137,7 +137,7 @@ valid_loader = build_dataloader(args, phase='val', sim_st_idx=args.val_st_idx, s
 test_loader = build_dataloader(args, phase='test', sim_st_idx=args.test_st_idx, sim_ed_idx=args.test_ed_idx)
 
 if args.encoder == 'mlp':
-    model = MLPEncoder(args.num_vis_frm * args.dims+3, args.hidden,
+    model = MLPEncoder(args.num_vis_frm * args.dims, args.hidden,
                        args.edge_types,
                        args.dropout, args.factor)
 elif args.encoder == 'cnn':
@@ -198,9 +198,10 @@ def train(epoch, best_val_accuracy):
 
         loss_train.append(loss.item())
         acc_train.append(acc)
-        if batch_idx % 20==0:
-            print('Training: batch id %d\n'%(batch_idx))
-            acc_tr = clevrer_utils.print_monitor(monitor, args.num_classes)
+        
+        #if batch_idx % 100==0:
+        #    print('Training: batch id %d\n'%(batch_idx))
+        #    acc_tr = clevrer_utils.print_monitor(monitor, args.num_classes)
     acc_tr = clevrer_utils.print_monitor(monitor, args.num_classes)
 
     model.eval()

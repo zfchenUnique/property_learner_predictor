@@ -55,8 +55,8 @@ def sample_obj_track(motion, num_vis_frm, sample_every):
     vel[:,1:frm_num] = track[:,1:frm_num] - track[:, : frm_num-1]
     track = track[:,:,:2]
     vel = vel[:, :, :2]
-    track = np.reshape(track, [obj_num, -1])
-    vel = np.reshape(vel, [obj_num, -1])
+    #track = np.reshape(track, [obj_num, -1])
+    #vel = np.reshape(vel, [obj_num, -1])
     return track, vel
 
 def get_edge_rel(obj_list, visible_obj_list=None):
@@ -121,9 +121,10 @@ class clevrerDataset(Dataset):
         with open(ann_path, 'r') as fh:
             ann = json.load(fh)
         shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
-        shape_mat = np.array(shape_emb)
+        shape_mat = np.expand_dims(np.array(shape_emb), axis=1)
+        shape_mat_exp = np.repeat(shape_mat, self.args.num_vis_frm, axis=1)
         track, vel = sample_obj_track(ann['motion'], self.args.num_vis_frm, self.args.sample_every)
-        obj_ftr = np.concatenate([shape_mat, track, vel], axis=1)
+        obj_ftr = np.concatenate([shape_mat_exp, track, vel], axis=2)
         edge = get_edge_rel(ann['config'])
         obj_ftr = obj_ftr.astype(np.float32)
         edge = edge.astype(np.long)
@@ -139,7 +140,7 @@ class clevrerDataset(Dataset):
             ref2query_list = None
             obj_ftr = obj_ftr.unsqueeze(dim=0)
             edge = edge.unsqueeze(dim=0)
-        return obj_ftr, edge, ref2query_list
+        return obj_ftr, edge, ref2query_list, sim_str
 
     def __getitem_render__(self, index):
         """
@@ -173,7 +174,7 @@ class clevrerDataset(Dataset):
             ref2query_list = None
             obj_ftr = obj_ftr.unsqueeze(dim=0)
             edge = edge.unsqueeze(dim=0)
-        return obj_ftr, edge, ref2query_list
+        return obj_ftr, edge, ref2query_list, sim_str
 
 def map_ref_to_query(obj_list_query, obj_list_ref):
     ref2query ={}
@@ -235,13 +236,14 @@ def load_reference_ftr_sim(ref_dir, sim_str, ann_query, args):
         ref2query = map_ref_to_query(ann_query['config'], ann['config']) 
         visible_list = list(ref2query.values())
         shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
-        shape_mat = np.array(shape_emb)
+        shape_mat = np.expand_dims(np.array(shape_emb), axis=1)
+        shape_mat_exp = np.repeat(shape_mat, args.num_vis_frm, axis=1)
         track, vel = sample_obj_track(ann['motion'], args.num_vis_frm, args.sample_every)
-
-        obj_ftr = np.concatenate([shape_mat, track, vel], axis=1)
+        # num_obj * num_vis_frm * 2+2+3
+        obj_ftr = np.concatenate([shape_mat_exp, track, vel], axis=2)
         # align the reference objects with the target object
         obj_num_ori = len(ann_query['config'])
-        obj_ftr_pad  = -1 * np.ones((obj_num_ori, obj_ftr.shape[1]), dtype=np.float32)
+        obj_ftr_pad  = -1 * np.ones((obj_num_ori, obj_ftr.shape[1], obj_ftr.shape[2]), dtype=np.float32)
         for idx1, idx2 in ref2query.items():
             obj_ftr_pad[idx2] = obj_ftr[idx1]
         # Only shows the labels for the visible objects

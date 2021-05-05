@@ -10,8 +10,11 @@ def print_monitor(monitor, num_classes):
         total = monitor['%d_count'%c_id]
         correct = monitor['%d_acc'%c_id]
         acc = correct / max(total, 0.000001)
-        print('class: %d, acc: %1f\n'%(c_id, acc)) 
+        print('class: %d, acc: %1f'%(c_id, acc)) 
         acc_list.append(acc)
+        print('predict distribution: ')
+        pred_dist = [ele / max(total, 0.000001) for ele in monitor['%d_pred'%c_id] ]
+        print(pred_dist)
     acc = np.mean(acc_list)
     print('class average acc: %1f\n'%(acc)) 
     return acc
@@ -21,6 +24,9 @@ def monitor_initialization(args):
     for cls_id in range(args.num_classes):
         monitor['%d_count'%cls_id] = 0.0
         monitor['%d_acc'%cls_id] = 0.0
+        monitor['%d_pred'%cls_id] = []
+        for c_id2 in range(args.num_classes):
+            monitor['%d_pred'%cls_id].append(0.0)
     return monitor
 
 def max_pool_prediction(output, num_obj, ref2query_list):
@@ -59,4 +65,6 @@ def compute_acc_by_class(output, target, num_classes, monitor):
         monitor['%d_acc'%c_id] += correct
         acc = correct*1.0 / pred.size(0)
         acc_list.append(acc)
+        for c_id2 in range(num_classes):
+            monitor['%d_pred'%c_id][c_id2] += int(torch.sum(pred.view(-1)==c_id2))
     return monitor, acc_list
