@@ -107,6 +107,10 @@ parser.add_argument('--sim_data_flag', type=int, default=1,
                 help='Flag to use simulation data.')
 parser.add_argument('--sample_every', type=int, default=10,
                 help='Sampling rate on simulation data.')
+parser.add_argument('--vis_dir', type=str, default="visualization",
+                help='directory for visualization')
+parser.add_argument('--visualize_flag', type=int, default=0,
+                help='visualization flag for data track')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -124,7 +128,6 @@ torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
-log = None
 test_loader = build_dataloader(args, phase='test', sim_st_idx=args.test_st_idx, sim_ed_idx=args.test_ed_idx)
 
 if args.decoder == 'mlp':
@@ -160,11 +163,10 @@ def test():
     counter = 0
     model.eval()
     model.load_state_dict(torch.load(model_file))
-    pdb.set_trace()
     for batch_idx, data_list in enumerate(test_loader):
         with torch.no_grad():
             for smp_id, smp in enumerate(data_list):
-                inputs, relations = smp[0], smp[1]
+                inputs, relations, ref2query_list, sim_str = smp[0], smp[1], smp[2], smp[3]
                 num_atoms = inputs.shape[1]
                 # Generate fully-connected interaction graph (sparse graphs would also work)
                 off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
@@ -193,8 +195,6 @@ def test():
                     rel_send = rel_send.cuda()
                 else:
                     inputs = inputs.contiguous()
-                inputs, rel_type_onehot = Variable(inputs, volatile=True), Variable(
-                    rel_type_onehot, volatile=True)
 
                 ins_cut = inputs[:, :, -args.timesteps:, :].contiguous()
 
@@ -226,6 +226,13 @@ def test():
                     target = data_plot[:, :, 1:, :]
                     baseline = inputs[:, :, args.timesteps:args.timesteps + 1,
                                :].expand_as(target)
+                if args.visualize_flag:
+                    if not os.path.isdir(args.vis_dir):
+                        os.makedirs(args.vis_dir)
+                    sim_str = os.path.join(args.vis_dir, sim_str)
+                    plot_sample(inputs, sim_str=sim_str+'_gt')
+                    plot_sample(output, sim_str=sim_str+'_pred')
+                    pdb.set_trace()
                 mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
                 tot_mse += mse.data.cpu().numpy()
                 counter += 1
@@ -271,18 +278,7 @@ def test():
 
 # Train model
 t_total = time.time()
-best_val_loss = np.inf
-best_epoch = 0
-for epoch in range(args.epochs):
-    val_loss = train(epoch, best_val_loss)
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
-        best_epoch = epoch
-print("Optimization Finished!")
-print("Best Epoch: {:04d}".format(best_epoch))
-if args.save_folder:
-    print("Best Epoch: {:04d}".format(best_epoch), file=log)
-    log.flush()
+log.flush()
 test()
 if log is not None:
     print(save_folder)

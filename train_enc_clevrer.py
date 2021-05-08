@@ -10,13 +10,16 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 
 from utils import *
-from modules import *
+from modules_clevrer import *
 import pdb
 from clevrer.clevrer_dataset import build_dataloader
 import clevrer.utils as clevrer_utils
 
+torch.autograd.set_detect_anomaly(True)
+
 # A pre-define class weight for class balance during calculating loss
-CLASS_WEIGHT=torch.FloatTensor([0.0253, 0.9516, 1.0])
+CHARGE_WEIGHT=torch.FloatTensor([0.0253, 0.9516, 1.0])
+MASS_WEIGHT=torch.FloatTensor([0.5, 1.0])
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -94,6 +97,12 @@ parser.add_argument('--sim_data_flag', type=int, default=1,
                 help='Flag to use simulation data.')
 parser.add_argument('--sample_every', type=int, default=10,
                 help='Sampling rate on simulation data.')
+parser.add_argument('--mass_num', type=int, default=2,
+                help='number of mass category.')
+parser.add_argument('--max_pool_mass', type=int, default=1,
+                help='max pool for mass')
+parser.add_argument('--add_field_flag', type=int, default=1,
+                help='flag to indicate fields')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -104,7 +113,8 @@ np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
-    CLASS_WEIGHT = CLASS_WEIGHT.cuda()
+    CHARGE_WEIGHT = CHARGE_WEIGHT.cuda()
+    MASS_WEIGHT = MASS_WEIGHT.cuda()
 
 def set_debugger():
     from IPython.core import ultratb
@@ -138,7 +148,7 @@ test_loader = build_dataloader(args, phase='test', sim_st_idx=args.test_st_idx, 
 
 if args.encoder == 'mlp':
     model = MLPEncoder(args.num_vis_frm * args.dims, args.hidden,
-                       args.edge_types,
+                       args.edge_types, args.mass_num, 
                        args.dropout, args.factor)
 elif args.encoder == 'cnn':
     model = CNNEncoder(args.dims, args.hidden, args.edge_types,
@@ -159,15 +169,23 @@ def train(epoch, best_val_accuracy):
     acc_train = []
     loss_val = []
     acc_val = []
+    loss_charge_train = []
+    loss_charge_val = []
+    loss_mass_train = []
+    loss_mass_val = []
     model.train()
     scheduler.step()
-    monitor = clevrer_utils.monitor_initialization(args)
+    monitor = clevrer_utils.monitor_initialization(args, 'charge')
+    monitor = clevrer_utils.monitor_initialization(args, 'mass', monitor)
     for batch_idx, data_list in enumerate(train_loader):
         # since video may be with different object numbers, feed it one by one
         output_list = []
         target_list = []
+        mass_list = []
+        mass_label_list = []
+        optimizer.zero_grad()
         for smp in data_list:
-            data, target = smp[0], smp[1]
+            data, target,ref2query_list, sim_str, mass_label = smp
             num_atoms = data.shape[1]
             # Generate off-diagonal interaction graph
             off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
@@ -179,39 +197,53 @@ def train(epoch, best_val_accuracy):
                 data, target = data.cuda(), target.cuda()
                 rel_rec = rel_rec.cuda()
                 rel_send = rel_send.cuda()
-            optimizer.zero_grad()
-            output = model(data, rel_rec, rel_send)
+                mass_label = mass_label.cuda()
+            output, pred_mass = model(data, rel_rec, rel_send)
             output_list.append(output.view(-1, args.num_classes))
             target_list.append(target.view(-1))
-            monitor, acc_list = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor)
+            mass_pool = clevrer_utils.pool_mass_prediction(pred_mass, num_atoms, ref2query_list, args.max_pool_mass)
+            mass_list.append(mass_pool.view(-1, args.mass_num))
+            mass_label_list.append(mass_label.view(-1))
 
-        output = torch.cat(output_list, dim=0)
-        target = torch.cat(target_list, dim=0)
+            monitor, acc_list = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor, 'charge')
+            monitor, acc_list_mass = clevrer_utils.compute_acc_by_class(mass_pool, mass_label, args.mass_num, monitor, 'mass')
 
-        loss = F.cross_entropy(output, target, weight=CLASS_WEIGHT)
+        output_cat = torch.cat(output_list, dim=0)
+        target_cat = torch.cat(target_list, dim=0)
+        mass_cat = torch.cat(mass_list, dim=0)
+        mass_label_cat = torch.cat(mass_label_list, dim=0)
+
+        loss_charge = F.cross_entropy(output_cat, target_cat, weight=CHARGE_WEIGHT)
+        loss_mass = F.cross_entropy(mass_cat, mass_label_cat, weight=MASS_WEIGHT)
+        loss  = loss_mass + loss_charge 
         loss.backward()
         optimizer.step()
 
-        pred = output.data.max(1, keepdim=True)[1]
-        correct = pred.eq(target.data.view_as(pred)).cpu().sum()
+        pred = output_cat.data.max(1, keepdim=True)[1]
+        correct = pred.eq(target_cat.data.view_as(pred)).cpu().sum()
         acc = correct*1.0 / pred.size(0)
 
         loss_train.append(loss.item())
+        loss_charge_train.append(loss_charge.item())
+        loss_mass_train.append(loss_mass.item())
         acc_train.append(acc)
         
         #if batch_idx % 100==0:
         #    print('Training: batch id %d\n'%(batch_idx))
         #    acc_tr = clevrer_utils.print_monitor(monitor, args.num_classes)
-    acc_tr = clevrer_utils.print_monitor(monitor, args.num_classes)
-
+    acc_tr_charge = clevrer_utils.print_monitor(monitor, args.num_classes, 'charge')
+    acc_tr_mass = clevrer_utils.print_monitor(monitor, args.mass_num, 'mass')
+    acc_tr = 0.5 * (acc_tr_charge + acc_tr_mass)
     model.eval()
     monitor = clevrer_utils.monitor_initialization(args)
     for batch_idx, data_list in enumerate(valid_loader):
         output_list = []
         target_list = []
+        mass_list = []
+        mass_label_list = []
         with torch.no_grad():
             for smp_id, smp in enumerate(data_list):
-                data, target, ref2query_list = smp[0], smp[1], smp[2]
+                data, target,ref2query_list, sim_str, mass_label = smp
                 num_atoms = data.shape[1]
                 # Generate off-diagonal interaction graph
                 off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
@@ -223,7 +255,8 @@ def train(epoch, best_val_accuracy):
                     data, target = data.cuda(), target.cuda()
                     rel_rec = rel_rec.cuda()
                     rel_send = rel_send.cuda()
-                output = model(data, rel_rec, rel_send)
+                    mass_label = mass_label.cuda()
+                output, pred_mass = model(data, rel_rec, rel_send)
                 if args.max_prediction_flag:
                     output_pool = clevrer_utils.max_pool_prediction(output, num_atoms, ref2query_list)
                     output_list.append(output_pool.view(-1, args.num_classes))
@@ -231,34 +264,50 @@ def train(epoch, best_val_accuracy):
                 else:
                     output_list.append(output.view(-1, args.num_classes))
                     target_list.append(target.view(-1))
+                mass_pool = clevrer_utils.pool_mass_prediction(pred_mass, num_atoms, ref2query_list, args.max_pool_mass)
+                mass_list.append(mass_pool.view(-1, args.mass_num))
+                mass_label_list.append(mass_label)
 
             output = torch.cat(output_list, dim=0)
             target = torch.cat(target_list, dim=0)
+            mass = torch.cat(mass_list, dim=0)
+            mass_label = torch.cat(mass_label_list, dim=0)
 
-            loss = F.cross_entropy(output, target, weight=CLASS_WEIGHT)
+            loss_charge = F.cross_entropy(output, target, weight=CHARGE_WEIGHT)
+            loss_mass = F.cross_entropy(mass,  mass_label, weight=MASS_WEIGHT)
+            loss  =  loss_charge  + loss_mass 
 
             pred = output.data.max(1, keepdim=True)[1]
             correct = pred.eq(target.data.view_as(pred)).cpu().sum()
             acc = correct*1.0 / pred.size(0)
-            monitor, acc_list = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor)
-
+            monitor, acc_list_charge = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor, 'charge')
+            monitor, acc_list_mass = clevrer_utils.compute_acc_by_class(mass, mass_label, args.mass_num, monitor, 'mass')
             loss_val.append(loss.item())
+            loss_charge_val.append(loss_charge.item())
+            loss_mass_val.append(loss_mass.item())
             acc_val.append(acc)
-    acc_vl = clevrer_utils.print_monitor(monitor, args.num_classes)
+    acc_vl_charge = clevrer_utils.print_monitor(monitor, args.num_classes, 'charge')
+    acc_vl_mass = clevrer_utils.print_monitor(monitor, args.mass_num, 'mass')
+    acc_vl = 0.5 * (acc_vl_charge + acc_vl_mass)
     print('Epoch: {:04d}'.format(epoch),
           'loss_train: {:.10f}'.format(np.mean(loss_train)),
+          'loss_train_mass: {:.10f}'.format(np.mean(loss_mass_train)),
+          'loss_train_charge: {:.10f}'.format(np.mean(loss_charge_train)),
           'acc_train: {:.10f}'.format(acc_tr),
+          '\n',
           'loss_val: {:.10f}'.format(np.mean(loss_val)),
+          'loss_val_mass: {:.10f}'.format(np.mean(loss_mass_val)),
+          'loss_val_charge: {:.10f}'.format(np.mean(loss_charge_val)),
           'acc_val: {:.10f}'.format(acc_vl),
           'time: {:.4f}s'.format(time.time() - t))
-    if args.save_folder and acc_vl > best_val_accuracy:
+    if args.save_folder and 0.5 * (acc_vl_charge + acc_vl_mass) > best_val_accuracy:
         torch.save(model.state_dict(), model_file)
         print('Best model so far, saving...')
         print('Epoch: {:04d}'.format(epoch),
               'loss_train: {:.10f}'.format(np.mean(loss_train)),
               'acc_train: {:.10f}'.format(acc_tr),
               'loss_val: {:.10f}'.format(np.mean(loss_val)),
-              'acc_val: {:.10f}'.format(acc_vl),
+              'acc_val: {:.10f}'.format( 0.5 * (acc_vl_charge+acc_vl_mass) ),
               'time: {:.4f}s'.format(time.time() - t), file=log)
         log.flush()
     #return np.mean(acc_val)
@@ -304,7 +353,7 @@ def test():
             output = output.view(-1, args.num_classes)
             target = target.view(-1)
 
-            loss = F.cross_entropy(output, target, weight=CLASS_WEIGHT)
+            loss = F.cross_entropy(output, target, weight=CHARGE_WEIGHT)
 
             pred = output.data.max(1, keepdim=True)[1]
             correct = pred.eq(target.data.view_as(pred)).cpu().sum()

@@ -7,6 +7,28 @@ from torch.utils.data import DataLoader, Dataset
 import torch
 import glob
 
+
+def check_in_field(pos, field_config):
+    """
+    Return flag to indicate whether the object is in the field
+    """
+    k1 = field_config['borderline'][0]
+    k2 = field_config['borderline'][1]
+    b  = field_config['borderline'][2]
+    flag = k1 * pos[0] + k2 * pos[1] + b > 0
+    return flag
+
+def get_field_info_sim(track, ann, add_field_flag):
+    field = np.zeros((track.shape[0], track.shape[1], 1 )).astype(np.float32)
+    if len(ann['field_config'])==0: 
+        return field
+    if not add_field_flag:
+        return field
+    border = np.array(ann['field_config'][0]['borderline'][:2]).reshape((1, 1, 2))
+    field_flag = np.sum(track * border, axis=2)  + ann['field_config'][0]['borderline'][2]
+    field = (field_flag >  0 ).astype(np.float32) 
+    return field.reshape(track.shape[0], track.shape[1], 1)  
+
 def get_one_hot_for_shape(shape_str):
     if shape_str=='sphere':
         return np.array([1, 0, 0])
@@ -53,6 +75,7 @@ def sample_obj_track(motion, num_vis_frm, sample_every):
     track[:, :frm_num] = track_ori[:, :frm_num]
     vel = np.zeros((obj_num, num_vis_frm, loc_dim))
     vel[:,1:frm_num] = track[:,1:frm_num] - track[:, : frm_num-1]
+    vel[:, 0] = vel[:, 1]
     track = track[:,:,:2]
     vel = vel[:, :, :2]
     #track = np.reshape(track, [obj_num, -1])
@@ -120,16 +143,26 @@ class clevrerDataset(Dataset):
         ann_path = os.path.join(self.ann_dir, sim_str + '.json')
         with open(ann_path, 'r') as fh:
             ann = json.load(fh)
+        # shape info
         shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
         shape_mat = np.expand_dims(np.array(shape_emb), axis=1)
         shape_mat_exp = np.repeat(shape_mat, self.args.num_vis_frm, axis=1)
         track, vel = sample_obj_track(ann['motion'], self.args.num_vis_frm, self.args.sample_every)
-        obj_ftr = np.concatenate([shape_mat_exp, track, vel], axis=2)
+        # mass info
+        mass_list = [obj_info['mass']==5 for obj_info in ann['config']]
+        mass_label = np.array(mass_list).astype(np.long)
+        mass_label = torch.from_numpy(mass_label)
+        # field info
+        field = get_field_info_sim(track, ann, self.args.add_field_flag)
+        
+        obj_ftr = np.concatenate([shape_mat_exp, track, vel, field], axis=2)
+        # edge info
         edge = get_edge_rel(ann['config'])
         obj_ftr = obj_ftr.astype(np.float32)
         edge = edge.astype(np.long)
         obj_ftr = torch.from_numpy(obj_ftr)
         edge = torch.from_numpy(edge)
+
         if self.args.load_reference_flag: 
             obj_ftr_list, edge_list, ref2query_list = load_reference_ftr_sim(self.ref_dir, sim_str, ann, self.args)
             obj_ftr_list.insert(0, obj_ftr)
@@ -140,7 +173,7 @@ class clevrerDataset(Dataset):
             ref2query_list = None
             obj_ftr = obj_ftr.unsqueeze(dim=0)
             edge = edge.unsqueeze(dim=0)
-        return obj_ftr, edge, ref2query_list, sim_str
+        return obj_ftr, edge, ref2query_list, sim_str, mass_label
 
     def __getitem_render__(self, index):
         """
@@ -239,8 +272,10 @@ def load_reference_ftr_sim(ref_dir, sim_str, ann_query, args):
         shape_mat = np.expand_dims(np.array(shape_emb), axis=1)
         shape_mat_exp = np.repeat(shape_mat, args.num_vis_frm, axis=1)
         track, vel = sample_obj_track(ann['motion'], args.num_vis_frm, args.sample_every)
+        # field info
+        field = get_field_info_sim(track, ann_query, args.add_field_flag)
         # num_obj * num_vis_frm * 2+2+3
-        obj_ftr = np.concatenate([shape_mat_exp, track, vel], axis=2)
+        obj_ftr = np.concatenate([shape_mat_exp, track, vel, field], axis=2)
         # align the reference objects with the target object
         obj_num_ori = len(ann_query['config'])
         obj_ftr_pad  = -1 * np.ones((obj_num_ori, obj_ftr.shape[1], obj_ftr.shape[2]), dtype=np.float32)
@@ -256,8 +291,6 @@ def load_reference_ftr_sim(ref_dir, sim_str, ann_query, args):
         edge_list.append(edge)
         ref2query_list.append(ref2query)
     return obj_ftr_list, edge_list, ref2query_list
-
-
 
 def collect_fun(data_list):
     return data_list

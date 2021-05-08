@@ -363,6 +363,7 @@ def test():
             target = data_plot[:, :, 1:, :]
             baseline = inputs[:, :, args.timesteps:args.timesteps + 1,
                        :].expand_as(target)
+        plot_sample(data_plot)
         mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
         tot_mse += mse.data.cpu().numpy()
         counter += 1

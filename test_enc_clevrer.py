@@ -15,7 +15,8 @@ import pdb
 from clevrer.clevrer_dataset import build_dataloader
 import clevrer.utils as clevrer_utils
 
-CLASS_WEIGHT=torch.FloatTensor([0.0176, 1, 0.75])
+#CLASS_WEIGHT=torch.FloatTensor([0.0176, 1, 0.75])
+CLASS_WEIGHT=torch.FloatTensor([0.0193, 1, 0.8893])
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
