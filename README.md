@@ -1,5 +1,9 @@
-# Neural relational inference for interacting systems
-
+# Neural relational inference for meta-CLEVRER
+-[] Field prediction,
+-[] Charge prediction,
+-[] Mass predictions
+-[] Bounding Box space
+-[] Fix learning rate for one task and check the other
 This repository contains the official PyTorch implementation of:
 
 **Neural relational inference for interacting systems.**  
