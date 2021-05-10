@@ -214,7 +214,7 @@ def train(epoch, best_val_accuracy):
             mass_list.append(mass_pool.view(-1, args.mass_num))
             mass_label_list.append(mass_label.view(-1))
 
-            monitor, acc_list = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor, 'charge')
+            monitor, acc_list = clevrer_utils.compute_acc_by_class(output_pool, target[0], args.num_classes, monitor, 'charge')
             monitor, acc_list_mass = clevrer_utils.compute_acc_by_class(mass_pool, mass_label, args.mass_num, monitor, 'mass')
 
         output_cat = torch.cat(output_list, dim=0)
@@ -347,7 +347,7 @@ def test():
                     data, target = data.cuda(), target.cuda()
                     rel_rec = rel_rec.cuda()
                     rel_send = rel_send.cuda()
-                output = model(data, rel_rec, rel_send)
+                output, mass_pred = model(data, rel_rec, rel_send)
 
                 if args.max_prediction_flag:
                     output_pool = clevrer_utils.max_pool_prediction(output, num_atoms, ref2query_list)
