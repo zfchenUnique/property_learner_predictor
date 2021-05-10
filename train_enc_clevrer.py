@@ -103,6 +103,8 @@ parser.add_argument('--max_pool_mass', type=int, default=1,
                 help='max pool for mass')
 parser.add_argument('--add_field_flag', type=int, default=1,
                 help='flag to indicate fields')
+parser.add_argument('--max_pool_charge_training', type=int, default=1,
+                help='max pool for charge training')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -199,8 +201,15 @@ def train(epoch, best_val_accuracy):
                 rel_send = rel_send.cuda()
                 mass_label = mass_label.cuda()
             output, pred_mass = model(data, rel_rec, rel_send)
-            output_list.append(output.view(-1, args.num_classes))
-            target_list.append(target.view(-1))
+        
+            if not args.max_pool_charge_training:
+                output_list.append(output.view(-1, args.num_classes))
+                target_list.append(target.view(-1))
+            else:
+                output_pool = clevrer_utils.max_pool_prediction(output, num_atoms, ref2query_list)
+                output_list.append(output_pool.view(-1, args.num_classes))
+                target_list.append(target[0])
+            
             mass_pool = clevrer_utils.pool_mass_prediction(pred_mass, num_atoms, ref2query_list, args.max_pool_mass)
             mass_list.append(mass_pool.view(-1, args.mass_num))
             mass_label_list.append(mass_label.view(-1))

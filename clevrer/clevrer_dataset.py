@@ -7,6 +7,8 @@ from torch.utils.data import DataLoader, Dataset
 import torch
 import glob
 
+IMG_H = 320
+IMG_W = 480
 
 def check_in_field(pos, field_config):
     """
@@ -42,8 +44,15 @@ def load_obj_track(track_path,  num_vis_frm, pad_value=-1):
     track_ori = np.transpose(track_ori, [1, 0, 2])
     track_pad = track_ori
     obj_num, time_step, box_dim = track_ori.shape
-    pad_pos = track_ori == np.array([0, 0, 480, 320])
+    pad_pos = track_ori == np.array([0, 0, IMG_W, IMG_H])
     pad_obj_frm = np.sum(pad_pos, axis=2)==4 
+    # coordinate normalization [x, y, w, h]
+    track_pad[:, :, 0] /= IMG_W
+    track_pad[:, :, 2] /= IMG_W
+    track_pad[:, :, 1] /= IMG_H 
+    track_pad[:, :, 3] /= IMG_H
+    track_pad[:, :, 2] -= track_pad[:, :, 0]
+    track_pad[:, :, 3] -= track_pad[:, :, 1]
     track_pad[pad_obj_frm] = pad_value 
 
     track = -1 * np.ones((obj_num, num_vis_frm, box_dim)) 
@@ -51,8 +60,7 @@ def load_obj_track(track_path,  num_vis_frm, pad_value=-1):
     track[:, :frm_num] = track_pad[:, :frm_num]
     vel = np.zeros((obj_num, num_vis_frm, box_dim))
     vel[:,1:frm_num] = track[:,1:frm_num] - track[:, : frm_num-1]
-    track = np.reshape(track, [obj_num, -1])
-    vel = np.reshape(vel, [obj_num, -1])
+    vel[:, 0] = vel[:, 1]
     return track, vel
 
 def sample_obj_track(motion, num_vis_frm, sample_every):
@@ -186,10 +194,19 @@ class clevrerDataset(Dataset):
         with open(ann_path, 'r') as fh:
             ann = json.load(fh)
         shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
-        shape_mat = np.array(shape_emb)
+        shape_mat = np.expand_dims(np.array(shape_emb), axis=1)
+        shape_mat_exp = np.repeat(shape_mat, self.args.num_vis_frm, axis=1)
+        # mass info
+        mass_list = [obj_info['mass']==5 for obj_info in ann['config']]
+        mass_label = np.array(mass_list).astype(np.long)
+        mass_label = torch.from_numpy(mass_label)
+        
+        # load object track
         track_path = os.path.join(self.track_dir, sim_str+'.npy')
         track, vel = load_obj_track(track_path, self.num_vis_frm)
-        obj_ftr = np.concatenate([shape_mat, track, vel], axis=1)
+        # field info
+        # To be added
+        obj_ftr = np.concatenate([shape_mat_exp, track, vel], axis=2)
         edge = get_edge_rel(ann['config'])
         obj_ftr = obj_ftr.astype(np.float32)
         edge = edge.astype(np.long)
@@ -207,7 +224,7 @@ class clevrerDataset(Dataset):
             ref2query_list = None
             obj_ftr = obj_ftr.unsqueeze(dim=0)
             edge = edge.unsqueeze(dim=0)
-        return obj_ftr, edge, ref2query_list, sim_str
+        return obj_ftr, edge, ref2query_list, sim_str, mass_label
 
 def map_ref_to_query(obj_list_query, obj_list_ref):
     ref2query ={}
@@ -235,14 +252,15 @@ def load_reference_ftr(ref_dir, ref_track_dir, sim_str, ann_query, args):
         ref2query = map_ref_to_query(ann_query['config'], ann['config']) 
         visible_list = list(ref2query.values())
         shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
-        shape_mat = np.array(shape_emb)
+        shape_mat = np.expand_dims(np.array(shape_emb), axis=1)
+        shape_mat_exp = np.repeat(shape_mat, args.num_vis_frm, axis=1)
         track_path = os.path.join(ref_track_dir, sim_str+ '_' + sub_dir  +'.npy')
         track, vel = load_obj_track(track_path, args.num_vis_frm)
 
-        obj_ftr = np.concatenate([shape_mat, track, vel], axis=1)
+        obj_ftr = np.concatenate([shape_mat_exp, track, vel], axis=2)
         # align the reference objects with the target object
         obj_num_ori = len(ann_query['config'])
-        obj_ftr_pad  = -1 * np.ones((obj_num_ori, obj_ftr.shape[1]), dtype=np.float32)
+        obj_ftr_pad  = -1 * np.ones((obj_num_ori, obj_ftr.shape[1], obj_ftr.shape[2]), dtype=np.float32)
         for idx1, idx2 in ref2query.items():
             obj_ftr_pad[idx2] = obj_ftr[idx1]
         # Only shows the labels for the visible objects
