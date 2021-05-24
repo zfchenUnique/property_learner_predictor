@@ -417,19 +417,20 @@ class SimulationDecoder(nn.Module):
 class MLPDecoder(nn.Module):
     """MLP decoder module."""
 
-    def __init__(self, n_in_node, edge_types, msg_hid, msg_out, n_hid,
+    def __init__(self, n_in_node, hist_win , edge_types, msg_hid, msg_out, n_hid,
                  do_prob=0., skip_first=False):
         super(MLPDecoder, self).__init__()
         self.msg_fc1 = nn.ModuleList(
-            [nn.Linear(2 * n_in_node, msg_hid) for _ in range(edge_types)])
+            [nn.Linear(2 * n_in_node * hist_win, msg_hid) for _ in range(edge_types)])
         self.msg_fc2 = nn.ModuleList(
             [nn.Linear(msg_hid, msg_out) for _ in range(edge_types)])
         self.msg_out_shape = msg_out
         self.skip_first_edge_type = skip_first
 
-        self.out_fc1 = nn.Linear(n_in_node + msg_out, n_hid)
+        self.out_fc1 = nn.Linear(n_in_node * hist_win + msg_out, n_hid)
         self.out_fc2 = nn.Linear(n_hid, n_hid)
         self.out_fc3 = nn.Linear(n_hid, n_in_node)
+        self.n_in_node = n_in_node
 
         print('Using learned interaction net decoder.')
 
@@ -479,34 +480,44 @@ class MLPDecoder(nn.Module):
         pred = F.dropout(F.relu(self.out_fc1(aug_inputs)), p=self.dropout_prob)
         pred = F.dropout(F.relu(self.out_fc2(pred)), p=self.dropout_prob)
         pred = self.out_fc3(pred)
-
         # Predict position/velocity difference
-        return single_timestep_inputs + pred
+        return single_timestep_inputs[:, :, :, -self.n_in_node:] + pred
 
     def forward(self, inputs, rel_type, rel_rec, rel_send, pred_steps=1):
         # NOTE: Assumes that we have the same graph across all samples.
 
+        # inputs: B=1 x n_obj x T=1 x (state_dim * n_his)
+        # rel_type: B=1 x n_rel x onehot=3
+        # rel_rec: n_rel x n_obj
+        # rel_send: n_rel x n_obj
+
+        # inputs: B=1 x T=1 x n_obj x (state_dim * n_his)
         inputs = inputs.transpose(1, 2).contiguous()
 
+        # sizes: B=1 x T=1 x n_rel x onehot=3
         sizes = [rel_type.size(0), inputs.size(1), rel_type.size(1),
                  rel_type.size(2)]
         rel_type = rel_type.unsqueeze(1).expand(sizes)
 
-        time_steps = inputs.size(1)
-        assert (pred_steps <= time_steps)
+        time_steps = inputs.size(1) # set as one, not used here
+
         preds = []
 
-        # Only take n-th timesteps as starting points (n: pred_steps)
-        last_pred = inputs[:, 0::pred_steps, :, :]
-        curr_rel_type = rel_type[:, 0::pred_steps, :, :]
+        last_pred = inputs
+        curr_rel_type = rel_type
         # NOTE: Assumes rel_type is constant (i.e. same across all time steps).
 
         # Run n prediction steps
         for step in range(0, pred_steps):
-            last_pred = self.single_step_forward(last_pred, rel_rec, rel_send,
-                                                 curr_rel_type)
-            preds.append(last_pred)
+            # last_pred: B=1 x T=1 x n_obj x state_dim
+            pred = self.single_step_forward(
+                    last_pred, rel_rec, rel_send, curr_rel_type)
+            preds.append(pred)
+            last_pred = torch.cat([
+                last_pred[:, :, :, self.n_in_node:],
+                pred], 3)
 
+        # sizes: B=1 x T=pred_steps x n_obj x state_dim
         sizes = [preds[0].size(0), preds[0].size(1) * pred_steps,
                  preds[0].size(2), preds[0].size(3)]
 
@@ -516,12 +527,17 @@ class MLPDecoder(nn.Module):
 
         # Re-assemble correct timeline
         for i in range(len(preds)):
-            output[:, i::pred_steps, :, :] = preds[i]
+            output[:, i:i+1, :, :] = preds[i]
 
-        pred_all = output[:, :(inputs.size(1) - 1), :, :]
+        pred_all = output
+        # print('output.shape', output.shape)
 
-        return pred_all.transpose(1, 2).contiguous()
+        # pred_all: B=1 x n_obj x T=pred_steps x state_dim
+        pred_all = pred_all.transpose(1, 2).contiguous()
 
+        # print('pred_all.shape', pred_all.shape)
+
+        return pred_all
 
 class RNNDecoder(nn.Module):
     """Recurrent decoder module."""
