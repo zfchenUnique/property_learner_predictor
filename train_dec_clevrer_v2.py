@@ -251,7 +251,9 @@ def train(epoch, best_val_loss):
             tmp_loss = nll_gaussian_v2(output, target, args.var)
             loss +=tmp_loss
             mse = F.mse_loss(output, target)
-            mse_baseline = F.mse_loss(inputs[:, :, :, -args.dims:], target)
+            mse_baseline = F.mse_loss(
+                    inputs[:, :, :, -args.dims:].repeat(1, 1, args.n_roll, 1),
+                    target)
             loss_train +=tmp_loss.data.item()
             mse_train +=mse.data.item()
             mse_baseline_train +=mse_baseline.item()
@@ -298,11 +300,13 @@ def train(epoch, best_val_loss):
 
                 
 
-                output = model(inputs, rel_type_onehot, rel_rec, rel_send, 1)
+                output = model(inputs, rel_type_onehot, rel_rec, rel_send, args.n_roll)
                 loss = nll_gaussian_v2(output, target, args.var)
 
                 mse = F.mse_loss(output, target)
-                mse_baseline = F.mse_loss(inputs[:, :, :, -args.dims:], target)
+                mse_baseline = F.mse_loss(
+                        inputs[:, :, :, -args.dims:].repeat(1, 1, args.n_roll, 1),
+                        target)
 
                 loss_val +=loss.data.item()
                 mse_val +=mse.data.item()
@@ -381,7 +385,7 @@ def test():
                 
                 ins_cut = inputs[:, :, -args.timesteps:, :].contiguous()
 
-                output = model(ins_cut, rel_type_onehot, rel_rec, rel_send, 1)
+                output = model(ins_cut, rel_type_onehot, rel_rec, rel_send, args.n_roll)
 
                 target = ins_cut[:, :, 1:, :]
 
