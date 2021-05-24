@@ -200,6 +200,7 @@ def train(epoch, best_val_loss):
             # target: []
             inputs, relations, target, sim_str = smp 
             num_atoms = inputs.shape[1]
+            #pdb.set_trace()
             # Generate fully-connected interaction graph (sparse graphs would also work)
             off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
             rel_rec = np.array(encode_onehot(np.where(off_diag)[0]), dtype=np.float32)

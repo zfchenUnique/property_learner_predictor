@@ -292,10 +292,12 @@ def forward_step(obj_pos, shape_mat_exp, mass_label_exp, relations, model):
         else:
             inputs = inputs.contiguous()
 
+        '''
         print('inputs.shape', inputs.shape)
         print('rel_type_onehot.shape', rel_type_onehot.shape)
         print('rel_rec.shape', rel_rec.shape)
         print('rel_send.shape', rel_send.shape)
+        '''
 
         output = model(inputs, rel_type_onehot, rel_rec, rel_send, 1)
         return output[:, :, :, 4:]

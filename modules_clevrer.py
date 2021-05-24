@@ -424,6 +424,11 @@ class MLPDecoder(nn.Module):
             [nn.Linear(2 * n_in_node * hist_win, msg_hid) for _ in range(edge_types)])
         self.msg_fc2 = nn.ModuleList(
             [nn.Linear(msg_hid, msg_out) for _ in range(edge_types)])
+        self.msg_fc3 = nn.ModuleList(
+            [nn.Linear(2 * (msg_out+n_in_node*hist_win), msg_hid) for _ in range(edge_types)])
+        self.msg_fc4 = nn.ModuleList(
+            [nn.Linear(msg_hid, msg_out) for _ in range(edge_types)])
+
         self.msg_out_shape = msg_out
         self.skip_first_edge_type = skip_first
 
@@ -445,7 +450,7 @@ class MLPDecoder(nn.Module):
         # single_timestep_rel_type has shape:
         # [batch_size, num_timesteps, num_atoms*(num_atoms-1), num_edge_types]
 
-        # Node2edge
+        ##### Node2edge round #1
         receivers = torch.matmul(rel_rec, single_timestep_inputs)
         senders = torch.matmul(rel_send, single_timestep_inputs)
         pre_msg = torch.cat([senders, receivers], dim=-1)
@@ -475,11 +480,47 @@ class MLPDecoder(nn.Module):
 
         # Skip connection
         aug_inputs = torch.cat([single_timestep_inputs, agg_msgs], dim=-1)
+        # print('R#1 aug_inputs.shape', aug_inputs.shape)
 
-        # Output MLP
+
+        ##### Node2edge round #2
+        receivers = torch.matmul(rel_rec, aug_inputs)
+        senders = torch.matmul(rel_send, aug_inputs)
+        pre_msg = torch.cat([senders, receivers], dim=-1)
+
+        all_msgs = Variable(torch.zeros(pre_msg.size(0), pre_msg.size(1),
+                                        pre_msg.size(2), self.msg_out_shape))
+        if single_timestep_inputs.is_cuda:
+            all_msgs = all_msgs.cuda()
+
+        if self.skip_first_edge_type:
+            start_idx = 1
+        else:
+            start_idx = 0
+
+        # Run separate MLP for every edge type
+        # NOTE: To exlude one edge type, simply offset range by 1
+        for i in range(start_idx, len(self.msg_fc2)):
+            msg = F.relu(self.msg_fc3[i](pre_msg))
+            msg = F.dropout(msg, p=self.dropout_prob)
+            msg = F.relu(self.msg_fc4[i](msg))
+            msg = msg * single_timestep_rel_type[:, :, :, i:i + 1]
+            all_msgs += msg
+
+        # Aggregate all msgs to receiver
+        agg_msgs = all_msgs.transpose(-2, -1).matmul(rel_rec).transpose(-2, -1)
+        agg_msgs = agg_msgs.contiguous()
+
+        # Skip connection
+        aug_inputs = torch.cat([single_timestep_inputs, agg_msgs], dim=-1)
+        # print('R#2 aug_inputs.shape', aug_inputs.shape)
+
+
+        ##### Output MLP
         pred = F.dropout(F.relu(self.out_fc1(aug_inputs)), p=self.dropout_prob)
         pred = F.dropout(F.relu(self.out_fc2(pred)), p=self.dropout_prob)
         pred = self.out_fc3(pred)
+
         # Predict position/velocity difference
         return single_timestep_inputs[:, :, :, -self.n_in_node:] + pred
 
