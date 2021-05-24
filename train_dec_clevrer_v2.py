@@ -51,7 +51,7 @@ parser.add_argument('--save-folder', type=str, default='logs',
                     help='Where to save the trained model.')
 parser.add_argument('--edge-types', type=int, default=3,
                     help='The number of edge types to infer.')
-parser.add_argument('--lr-decay', type=int, default=200,
+parser.add_argument('--lr-decay', type=int, default=8,
                     help='After how epochs to decay LR by a factor of gamma')
 parser.add_argument('--gamma', type=float, default=0.5,
                     help='LR decay factor')
@@ -275,7 +275,7 @@ def train(epoch, best_val_loss):
 
     model.eval()
     for batch_idx, data_list in enumerate(valid_loader):
-        if batch_idx % 100 == 0:
+        if batch_idx % 1000 == 0:
             print('valid [%d/%d]' % (batch_idx, len(valid_loader)))
         with torch.no_grad():
             for smp_id, smp in enumerate(data_list):

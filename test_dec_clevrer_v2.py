@@ -235,12 +235,10 @@ def test():
             frame_output[valid_obj_ids] = step_output[0, :, 0].cpu()
             objs_pred.append(frame_output)
 
-        '''
         for idx_check in range(len(objs_gt)):
             print(idx_check)
             print(objs_gt[idx_check])
             print(objs_pred[idx_check])
-        '''
 
         # num_obj,  num_frame, box_dim
         objs_gt = torch.stack(objs_gt, dim=1) 
