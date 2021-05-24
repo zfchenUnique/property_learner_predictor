@@ -197,6 +197,12 @@ def test():
         objs_pred = []
         pred_st = 0
         edge = get_edge_rel(ann['config'])
+        #if np.sum(edge)>0:
+        #    print(sim_str)
+        #   pdb.set_trace()
+        #    continue
+        #else:
+        #    continue
 
         for pred_id in range(pred_st, pred_st+args.pred_frm_num):
             if len(objs_pred)<n_his + 1:
@@ -211,6 +217,9 @@ def test():
                 objs_pred.append(objs_gt[pred_id])
                 continue
             # using only valid objects
+            # print('num_obj', obj_pos.shape[0])
+            # print(pred_id, valid_obj_ids)
+
             edge = get_edge_rel([ann['config'][obj_id] for obj_id in valid_obj_ids])
             edge = edge.astype(np.long)
             edge = torch.from_numpy(edge)
@@ -226,10 +235,12 @@ def test():
             frame_output[valid_obj_ids] = step_output[0, :, 0].cpu()
             objs_pred.append(frame_output)
 
+        '''
         for idx_check in range(len(objs_gt)):
             print(idx_check)
             print(objs_gt[idx_check])
             print(objs_pred[idx_check])
+        '''
 
         # num_obj,  num_frame, box_dim
         objs_gt = torch.stack(objs_gt, dim=1) 
@@ -275,6 +286,12 @@ def forward_step(obj_pos, shape_mat_exp, mass_label_exp, relations, model):
                                             args.edge_types)
         rel_type_onehot.zero_()
         rel_type_onehot.scatter_(2, relations.view(inputs.size(0), -1, 1), 1)
+
+        '''
+        print(rel_type_onehot)
+        print(rel_rec)
+        print(rel_send)
+        '''
 
         if args.fully_connected:
             zeros = torch.zeros(

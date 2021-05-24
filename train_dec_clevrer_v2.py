@@ -229,7 +229,6 @@ def train(epoch, best_val_loss):
             else:
                 inputs = inputs.contiguous()
 
-            optimizer.zero_grad()
             if args.decoder == 'rnn':
                 output = model(inputs, rel_type_onehot, rel_rec, rel_send, 1,
                                burn_in=True,
@@ -259,9 +258,21 @@ def train(epoch, best_val_loss):
             mse_train +=mse.data.item()
             mse_baseline_train +=mse_baseline.item()
             count_train +=1
-        loss = loss*1.0/count_train
+
+        loss = loss*1.0/len(data_list)
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+        if batch_idx % 500 == 0:
+            print('Epoch: {:04d}'.format(epoch),
+                  'Iter: {:04d}'.format(batch_idx),
+                  'nll_train: {:.10f}'.format(loss),
+                  'mse_train: {:.12f}'.format(mse_train/count_train),
+                  'mse_baseline_train: {:.10f}'.format(mse_baseline_train/count_train),
+                  'time: {:.4f}s'.format(time.time() - t))
+
+
     model.eval()
     for batch_idx, data_list in enumerate(valid_loader):
         if batch_idx % 100 == 0:
