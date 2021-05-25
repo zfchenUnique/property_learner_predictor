@@ -15,6 +15,7 @@ CUDA_VISIBLE_DEVICES=${GPU_ID} python test_dec_clevrer_v2.py \
     --track_dir ../../../output/render_output_disk2/box_v14 \
     --ref_track_dir ../../../output/render_output_disk2/box_reference_v14 \
     --save-folder logs/exp_no_field_n_rollout_4_multi_msg_passing \
+    # --save-folder logs/exp_no_field_n_rollout_4_multi_msg_passing_B4_LRD8 \
     #--save-folder logs/exp_no_field_n_rollout_4 \
     #--ann_dir ../../../output/render_output/ann_v13 \
     #--ref_dir ../../../output/render_output/reference_v13 \

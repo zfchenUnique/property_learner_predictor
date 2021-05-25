@@ -281,7 +281,7 @@ class clevrerDataset(Dataset):
         edge = torch.from_numpy(edge)
         # batch size 1  & time slide 1
         x = obj_ftr[:, :n_his+1]
-        x[:, :, 4:] = x[:, :, 4:] + torch.randn(x[:, :, 4:].size()) * 0.005
+        x[:, :, 4:] = x[:, :, 4:] + torch.randn(x[:, :, 4:].size()) * 0.001
         x = x.view(1, obj_ftr.shape[0], 1, -1)
         label = obj_ftr[:, n_his+1:].view(1, obj_ftr.shape[0], n_roll, -1)
         edge = edge.view(1, -1)
