@@ -211,14 +211,14 @@ def test():
         charge_edge_num = np.sum(edge)
         for what_if in range(-1, num_obj):
             # for future prediction
-            if what_if=='-1':
-                pred_frm_num = 12
+            if what_if==-1:
+                future_frm_num = 12
                 objs_pred = []
-                for pred_id in range(pred_st, pred_st+pred_frm_num):
+                for pred_id in range(pred_st, pred_st+pred_frm_num+future_frm_num):
                     if len(objs_pred)<n_his + 1:
                         objs_pred.append(objs_gt[pred_id])
                         continue
-                    if len(objs_pred) <=len(objs_gt):
+                    if len(objs_pred) <len(objs_gt):
                         objs_pred.append(objs_gt[pred_id])
                         continue
                     obj_pos_list = objs_pred[pred_id-n_his-1: pred_id]
@@ -226,7 +226,7 @@ def test():
                     obj_pos = torch.stack(obj_pos_list, dim=1)    
                     obj_states = check_obj_inputs_valid_state(obj_pos)
                     valid_obj_ids = [idx_obj for idx_obj in range(obj_states.shape[0]) if obj_states[idx_obj]]
-                    if len(valid_obj_ids)<=0:
+                    if len(valid_obj_ids)<=1:
                         break
                     # using only valid objects
                     edge = get_edge_rel([ann['config'][obj_id] for obj_id in valid_obj_ids])
@@ -235,7 +235,6 @@ def test():
                     edge = edge.view(1, -1)
                     shape_mat_exp = torch.from_numpy(shape_mat_exp_np)
                     mass_label_exp = torch.from_numpy(mass_label_exp_np)
-                    mass_label_exp[what_if]  = mass_onehot
                     
                     obj_pos_valid = obj_pos[valid_obj_ids]
                     shape_mat_exp_valid = shape_mat_exp[valid_obj_ids]
@@ -251,7 +250,7 @@ def test():
                 #sim_str_full = os.path.join(args.vis_dir, sim_str+'_'+str(what_if)+'_'+str(mass_val) )
                 #plot_video_trajectories(objs_gt[:, pred_st:pred_st+args.pred_frm_num], loc_dim_st=0, save_id=sim_str_full+'_gt')
                 #plot_video_trajectories(objs_pred, loc_dim_st=0, save_id=sim_str_full+'_query')
-                out_dict['future'] = {'what_if': -1, 'trajectories': objs_pred} 
+                out_dict['future'] = {'what_if': -1, 'trajectories': objs_pred.numpy().tolist()} 
             if what_if==-1:
                 continue
             #pdb.set_trace()
@@ -347,7 +346,7 @@ def test():
                 charge_out_list.append(tmp_output)
         
         out_dict['mass'] = mass_out_list
-        out_dict['charge'] = mass_out_list
+        out_dict['charge'] = charge_out_list
         full_path = os.path.join(args.prediction_output_dir, sim_str+'.json') 
         out_dir = os.path.dirname(full_path)
         if not os.path.isdir(out_dir):
