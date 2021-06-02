@@ -10,10 +10,11 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 
 from utils import *
-from modules import *
+from modules_clevrer import *
 import pdb
 from clevrer.clevrer_dataset import build_dataloader
 import clevrer.utils as clevrer_utils
+import json
 
 #CLASS_WEIGHT=torch.FloatTensor([0.0176, 1, 0.75])
 CLASS_WEIGHT=torch.FloatTensor([0.0193, 1, 0.8893])
@@ -90,10 +91,24 @@ parser.add_argument('--load_reference_flag', type=int, default=0,
                 help='Load reference videos for prediction.')
 parser.add_argument('--max_prediction_flag', type=int, default=1,
                 help='Load reference videos for prediction.')
-parser.add_argument('--sim_data_flag', type=int, default=1,
+parser.add_argument('--sim_data_flag', type=int, default=0,
                 help='Flag to use simulation data.')
 parser.add_argument('--sample_every', type=int, default=10,
                 help='Sampling rate on simulation data.')
+parser.add_argument('--mass_best_flag', type=int, default=0,
+                help='Use mass best model')
+parser.add_argument('--charge_best_flag', type=int, default=0,
+                help='Use charge best model')
+parser.add_argument('--mass_num', type=int, default=2,
+                help='number of mass category.')
+parser.add_argument('--max_pool_mass', type=int, default=1,
+                help='max pool for mass')
+parser.add_argument('--add_field_flag', type=int, default=1,
+                help='flag to indicate fields')
+parser.add_argument('--max_pool_charge_training', type=int, default=1,
+                help='max pool for charge training')
+parser.add_argument('--proposal_flag', type=int, default=0,
+                help='results for mask proposals and attributes')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -117,6 +132,21 @@ log = None
 save_folder = args.save_folder
 meta_file = os.path.join(save_folder, 'test_metadata.pkl')
 model_file = os.path.join(save_folder, 'encoder.pt')
+model_file_mass = os.path.join(save_folder, 'encoder_mass.pt')
+model_file_charge = os.path.join(save_folder, 'encoder_charge.pt')
+save_result_path = os.path.join(save_folder, 'raw_prediction.json')
+save_result_path_mass = os.path.join(save_folder, 'raw_prediction_mass.json')
+save_result_path_charge = os.path.join(save_folder, 'raw_prediction_charge.json')
+
+if args.mass_best_flag:
+    model_file = model_file_mass
+    save_result_path = save_result_path_mass
+    print('Using %s.\n'%model_file_mass)
+if args.charge_best_flag:
+    model_file = model_file_charge
+    save_result_path = save_result_path_charge
+    print('Using %s.\n'%model_file_charge)
+
 log_file = os.path.join(save_folder, 'test_log.txt')
 log = open(log_file, 'w')
 pickle.dump({'args': args}, open(meta_file, "wb"))
@@ -125,25 +155,30 @@ test_loader = build_dataloader(args, phase='test', sim_st_idx=args.test_st_idx, 
 
 if args.encoder == 'mlp':
     model = MLPEncoder(args.num_vis_frm * args.dims, args.hidden,
-                       args.edge_types,
+                       args.edge_types, args.mass_num, 
                        args.dropout, args.factor)
 elif args.encoder == 'cnn':
     model = CNNEncoder(args.dims, args.hidden, args.edge_types,
                        args.dropout, args.factor)
 
 def test():
-    monitor = clevrer_utils.monitor_initialization(args)
+    monitor = clevrer_utils.monitor_initialization(args, 'charge')
+    monitor = clevrer_utils.monitor_initialization(args, 'mass', monitor)
     t = time.time()
     loss_test = []
     acc_test = []
     model.eval()
     model.load_state_dict(torch.load(model_file))
+    mass_pred_label_dict = {}
+    charge_pred_label_dict = {}
     for batch_idx, data_list in enumerate(test_loader):
         output_list = []
         target_list = []
+        mass_list = []
+        mass_label_list = []
         with torch.no_grad():
             for smp_id, smp in enumerate(data_list):
-                data, target, ref2query_list, sim_id, mass_label, valid_flag = smp
+                data, target, ref2query_list, sim_str, mass_label, valid_flag = smp
                 num_atoms = data.shape[1]
                 # Generate off-diagonal interaction graph
                 off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
@@ -155,7 +190,8 @@ def test():
                     data, target = data.cuda(), target.cuda()
                     rel_rec = rel_rec.cuda()
                     rel_send = rel_send.cuda()
-                output = model(data, rel_rec, rel_send)
+                    mass_label = mass_label.cuda()
+                output, pred_mass = model(data, rel_rec, rel_send)
 
                 if args.max_prediction_flag:
                     output_pool = clevrer_utils.max_pool_prediction(output, num_atoms, ref2query_list)
@@ -164,19 +200,30 @@ def test():
                 else:
                     output_list.append(output.view(-1, args.num_classes))
                     target_list.append(target.view(-1))
-                pdb.set_trace()
+                mass_pool = clevrer_utils.pool_mass_prediction(pred_mass, num_atoms, ref2query_list, args.max_pool_mass)
+                mass_list.append(mass_pool.view(-1, args.mass_num))
+                mass_label_list.append(mass_label)
+                
+                mass_pred_to_list = mass_pool.view(-1, args.mass_num).max(1)[1].cpu().numpy().tolist()
+                mass_pred_label_dict[sim_str] = mass_pred_to_list 
+                charge_pred_to_list = output_pool.view(-1, args.num_classes).cpu().numpy().tolist()
+                charge_pred_label_dict[sim_str] = charge_pred_to_list 
+            
             output = torch.cat(output_list, dim=0)
             target = torch.cat(target_list, dim=0)
             # Flatten batch dim
             output = output.view(-1, args.num_classes)
             target = target.view(-1)
+            mass = torch.cat(mass_list, dim=0)
+            mass_label = torch.cat(mass_label_list, dim=0)
 
             loss = F.cross_entropy(output, target, weight=CLASS_WEIGHT)
             
             pred = output.data.max(1, keepdim=True)[1]
             correct = pred.eq(target.data.view_as(pred)).cpu().sum()
             acc = correct*1.0 / pred.size(0)
-            monitor, acc_list = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor)
+            monitor, acc_list_charge = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor, 'charge')
+            monitor, acc_list_mass = clevrer_utils.compute_acc_by_class(mass, mass_label, args.mass_num, monitor, 'mass')
 
             loss_test.append(loss.item())
             acc_test.append(acc)
@@ -185,7 +232,8 @@ def test():
     print('--------------------------------')
     print('loss_test: {:.10f}'.format(np.mean(loss_test)),
           'acc_test: {:.10f}'.format(np.mean(acc_test)))
-    acc = clevrer_utils.print_monitor(monitor, args.num_classes)
+    acc_tr_charge = clevrer_utils.print_monitor(monitor, args.num_classes, 'charge')
+    acc_tr_mass = clevrer_utils.print_monitor(monitor, args.mass_num, 'mass')
     if args.save_folder:
         print('--------------------------------', file=log)
         print('--------Testing-----------------', file=log)
@@ -193,6 +241,9 @@ def test():
         print('loss_test: {:.10f}'.format(np.mean(loss_test)),
               'acc_test: {:.10f}'.format(np.mean(acc_test)), file=log)
         log.flush()
+        with open(save_result_path, 'w') as fh:
+            json.dump({'mass': mass_pred_label_dict, 'charge': charge_pred_label_dict}, fh)
+    pdb.set_trace()
     return np.mean(acc_test)
 
 if args.cuda:

@@ -111,6 +111,8 @@ parser.add_argument('--vis_dir', type=str, default="visualization",
                 help='directory for visualization')
 parser.add_argument('--visualize_flag', type=int, default=0,
                 help='visualization flag for data track')
+parser.add_argument('--add_field_flag', type=int, default=1,
+                help='flag to indicate fields')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -216,7 +218,7 @@ def test():
                     output = model(inputs, rel_type_onehot, rel_rec, rel_send, 100,
                                    burn_in=True, burn_in_steps=args.timesteps)
                     output = output[:, :, args.timesteps:, :]
-                    target = inputs[:, :, -args.timesteps:, :]
+                    target = inputs[:, :, args.timesteps+1:, :]
                     baseline = inputs[:, :, -(args.timesteps + 1):-args.timesteps,
                                :].expand_as(target)
                 else:
@@ -230,8 +232,8 @@ def test():
                     if not os.path.isdir(args.vis_dir):
                         os.makedirs(args.vis_dir)
                     sim_str = os.path.join(args.vis_dir, sim_str)
-                    plot_sample(inputs, sim_str=sim_str+'_gt')
-                    plot_sample(output, sim_str=sim_str+'_pred')
+                    plot_sample(target[:, :, :10], sim_str=sim_str+'_gt')
+                    plot_sample(output[:, :, :10], sim_str=sim_str+'_pred')
                     pdb.set_trace()
                 mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
                 tot_mse += mse.data.cpu().numpy()

@@ -87,7 +87,7 @@ parser.add_argument('--track_dir', type=str, default="../../render/output/box_ca
                 help='directory for target track annotation')
 parser.add_argument('--ref_track_dir', type=str, default="../../render/output/box_reference_v9",
                 help='directory for reference track annotation')
-parser.add_argument('--num_vis_frm', type=int, default=125,
+parser.add_argument('--num_vis_frm', type=int, default=128,
                 help='Number of visible frames.')
 parser.add_argument('--train_st_idx', type=int, default=0,
                 help='Start index of the training videos.')
@@ -298,7 +298,7 @@ def test():
                 tmp_output = {'what_if': what_if, 'mass': mass_val, 'collisions': [],'trajectories': objs_pred.numpy().tolist()}
                 mass_out_list.append(tmp_output)    
             # counterfactual charge
-            for charge_id, charge_val in enumerate([-1, 1]): 
+            for charge_id, charge_val in enumerate([-1, 0, 1]): 
                 if what_if!=-1 and charge_val ==ann['config'][what_if]['charge']:
                     continue
                 # no need to counterfactual charge if no objects are charged
