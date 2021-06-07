@@ -259,6 +259,7 @@ def test():
                 if what_if!=-1 and mass_val ==ann['config'][what_if]['mass']:
                     continue
                 mass_onehot = 1 if mass_val ==5 else 0
+                objs_appear = []
                 objs_pred = []
                 for pred_id in range(pred_st, pred_st+pred_frm_num):
                     if len(objs_pred)<n_his + 1:
@@ -271,6 +272,9 @@ def test():
                     valid_obj_ids = [idx_obj for idx_obj in range(obj_states.shape[0]) if obj_states[idx_obj]]
                     if len(valid_obj_ids)<=1:
                         objs_pred.append(objs_gt[pred_id])
+                        for idxx in  range(frame_output.shape[0]):
+                            if idxx in objs_appear:
+                                objs_pred[pred_id][idxx] = objs_pred[pred_id-1][idxx]
                         continue
                     # using only valid objects
                     edge = get_edge_rel([ann['config'][obj_id] for obj_id in valid_obj_ids])
@@ -286,9 +290,17 @@ def test():
                     mass_label_exp_valid = mass_label_exp[valid_obj_ids]
                     step_output = forward_step( obj_pos_valid
                             , shape_mat_exp_valid, mass_label_exp_valid, edge, model)
-                    frame_output = copy.deepcopy(objs_pred[pred_id-1])
+                    if pred_id < len(objs_gt):
+                        frame_output = copy.deepcopy(objs_gt[pred_id])
+                        for idxx in  range(frame_output.shape[0]):
+                            if idxx in objs_appear:
+                                frame_output[idxx] = objs_pred[pred_id-1][idxx]
+                    else:
+                        frame_output = copy.deepcopy(objs_pred[pred_id-1])
                     frame_output[valid_obj_ids] = step_output[0, :, 0].cpu()
                     objs_pred.append(frame_output)
+                    objs_appear +=valid_obj_ids
+                    objs_appear = list(set(objs_appear))
                 # num_obj,  num_frame, box_dim
                 #objs_gt = torch.stack(objs_gt, dim=1) 
                 objs_pred = torch.stack(objs_pred, dim=1) 
@@ -304,6 +316,7 @@ def test():
                 # no need to counterfactual charge if no objects are charged
                 if charge_edge_num==0:
                     continue
+                objs_appear = []
                 objs_pred = []
                 ann_what_if = copy.deepcopy(ann)
                 ann_what_if['config'][what_if]['charge'] = charge_val
@@ -318,6 +331,9 @@ def test():
                     valid_obj_ids = [idx_obj for idx_obj in range(obj_states.shape[0]) if obj_states[idx_obj]]
                     if len(valid_obj_ids)<=1:
                         objs_pred.append(objs_gt[pred_id])
+                        for idxx in  range(frame_output.shape[0]):
+                            if idxx in objs_appear:
+                                objs_pred[pred_id][idxx] = objs_pred[pred_id-1][idxx]
                         continue
                     # using only valid objects
                     edge = get_edge_rel([ann_what_if['config'][obj_id] for obj_id in valid_obj_ids])
@@ -333,9 +349,17 @@ def test():
                     mass_label_exp_valid = mass_label_exp[valid_obj_ids]
                     step_output = forward_step( obj_pos_valid
                             , shape_mat_exp_valid, mass_label_exp_valid, edge, model)
-                    frame_output = copy.deepcopy(objs_pred[pred_id-1])
+                    if pred_id < len(objs_gt):
+                        frame_output = copy.deepcopy(objs_gt[pred_id])
+                        for idxx in  range(frame_output.shape[0]):
+                            if idxx in objs_appear:
+                                frame_output[idxx] = objs_pred[pred_id-1][idxx]
+                    else:
+                        frame_output = copy.deepcopy(objs_pred[pred_id-1])
                     frame_output[valid_obj_ids] = step_output[0, :, 0].cpu()
                     objs_pred.append(frame_output)
+                    objs_appear +=valid_obj_ids
+                    objs_appear = list(set(objs_appear))
                 # num_obj,  num_frame, box_dim
                 #objs_gt = torch.stack(objs_gt, dim=1) 
                 objs_pred = torch.stack(objs_pred, dim=1) 
