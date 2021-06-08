@@ -8,6 +8,19 @@ from matplotlib import cm
 from numpy import linspace
 from matplotlib import pyplot as plt 
 import pdb
+import os
+
+def nll_gaussian_v2(preds, target, variance, add_const=False):
+    # assume 
+    return nll_gaussian(preds, target, variance, add_const)
+    pdb.set_trace()
+
+def nll_gaussian(preds, target, variance, add_const=False):
+    neg_log_p = ((preds - target) ** 2 / (2 * variance))
+    if add_const:
+        const = 0.5 * np.log(2 * np.pi * variance)
+        neg_log_p += const
+    return neg_log_p.sum() / (target.size(0) * target.size(1))
 
 def plot_sample(pyt_track, loc_dim_st=3, sim_str=''):
     np_track  = pyt_track.cpu().data.numpy()
@@ -22,7 +35,54 @@ def plot_trajectories(ftr_ori, loc_dim_st=3, save_id=''):
     """
     ftr_loc = ftr_ori[:, :, loc_dim_st:loc_dim_st+2]
     loc = np.transpose(ftr_loc, [1, 2, 0])
+    if not os.path.isdir(save_id):
+        os.makedirs(save_id)
     plot_loc(loc, save_id)
+
+def plot_video_trajectories(ftr_ori, loc_dim_st=0, save_id=''):
+    """
+    ftr_ori: num_obj x num_timesteps x ftr_dim 
+    """
+    ftr_loc = ftr_ori[:, :, loc_dim_st:loc_dim_st+2]
+    loc = np.transpose(ftr_loc, [1, 2, 0])
+    os.system('mkdir -p ' + save_id)
+    plot_video(loc, save_id)
+
+def plot_video(loc, save_id):
+    """
+    loc: num_timesteps x num_dims x num_objects
+    """
+    print('loc.shape', loc.shape)
+    start = 0.0
+    stop = 1.0
+    num_colors = 10
+    cm_subsection = linspace(start, stop, num_colors) 
+
+    colors = [ cm.Set1(x) for x in cm_subsection ]
+    for t in range(loc.shape[0]):
+        for i in range(loc.shape[-1]):
+            # Plot fading tail for past locations.
+            plt.plot(loc[t, 0, i], loc[t, 1, i], 'o', markersize=10, 
+                     color=colors[i])
+            plt.text(loc[t, 0, i], loc[t, 1, i], str(i), color = (0, 0, 0), size='xx-large')
+        plt.ylim([0, 1])
+        plt.xlim([0, 1])
+        plt.gca().invert_yaxis()
+        frame_str = '%04d.png'%t
+        img_path= os.path.join(save_id, frame_str)
+        # print(img_path)
+        plt.savefig(img_path)
+        plt.close()
+    make_video(5, save_id, save_id+'.mp4')
+    
+
+def make_video(fps, frame_dir, save_path):
+    #cmd = 'ffmpeg -r %d -pattern_type glob -i \'%s/*.png\' -pix_fmt yuv420p -vcodec libx264 -crf 0 %s -y' % (fps, frame_dir, save_path)
+    cmd = 'ffmpeg -r %d -pattern_type glob -i \'%s/*.png\' -pix_fmt yuv420p %s -y' % (fps, frame_dir, save_path)
+    os.system(cmd)
+    save_path_gif = save_path.replace('.mp4', '.gif')
+    cmd2 = 'ffmpeg -i %s -t %d %s'%(save_path, fps, save_path_gif)
+    os.system(cmd2)
 
 def plot_loc(loc, save_id):
     """
@@ -34,7 +94,6 @@ def plot_loc(loc, save_id):
     cm_subsection = linspace(start, stop, num_colors) 
 
     colors = [ cm.Set1(x) for x in cm_subsection ]
-
     for i in range(loc.shape[-1]):
         for t in range(loc.shape[0]):
             # Plot fading tail for past locations.
@@ -42,9 +101,13 @@ def plot_loc(loc, save_id):
                      color=colors[i], alpha=(float(t)/loc.shape[0]))
         # Plot final location.
         plt.plot(loc[-1, 0, i], loc[-1, 1, i], 'o', color=colors[i])
+    plt.ylim([0, 1])
+    plt.xlim([0, 1])
+    #plt.ylim([-5, 5])
+    #plt.xlim([-5, 5])
+    plt.savefig('%s.png'%save_id)
     plt.savefig('%s.png'%save_id)
     plt.close()
-    pdb.set_trace()
 
 def my_softmax(input, axis=1):
     trans_input = input.transpose(axis, 0).contiguous()

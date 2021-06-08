@@ -101,6 +101,8 @@ parser.add_argument('--sim_data_flag', type=int, default=1,
                 help='Flag to use simulation data.')
 parser.add_argument('--sample_every', type=int, default=10,
                 help='Sampling rate on simulation data.')
+parser.add_argument('--add_field_flag', type=int, default=1,
+                help='flag to indicate fields')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -158,12 +160,6 @@ scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_decay,
 if args.cuda:
     model.cuda()
 
-def nll_gaussian(preds, target, variance, add_const=False):
-    neg_log_p = ((preds - target) ** 2 / (2 * variance))
-    if add_const:
-        const = 0.5 * np.log(2 * np.pi * variance)
-        neg_log_p += const
-    return neg_log_p.sum() / (target.size(0) * target.size(1))
 
 def train(epoch, best_val_loss):
     t = time.time()
@@ -178,7 +174,7 @@ def train(epoch, best_val_loss):
     scheduler.step()
     for batch_idx, data_list in enumerate(train_loader):
         for smp_id, smp in enumerate(data_list):
-            inputs, relations = smp[0], smp[1]
+            inputs, relations, ref2query_list, sim_id, valid_flag = smp[0], smp[1], smp[2], smp[3], smp[4]
             num_atoms = inputs.shape[1]
             # Generate fully-connected interaction graph (sparse graphs would also work)
             off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
@@ -208,7 +204,6 @@ def train(epoch, best_val_loss):
                 inputs = inputs.contiguous()
 
             optimizer.zero_grad()
-
             if args.decoder == 'rnn':
                 output = model(inputs, rel_type_onehot, rel_rec, rel_send, 100,
                                burn_in=True,
@@ -218,7 +213,7 @@ def train(epoch, best_val_loss):
                                args.prediction_steps)
 
         target = inputs[:, :, 1:, :]
-        loss = nll_gaussian(output, target, args.var)
+        loss = nll_gaussian_v2(output, target, args.var)
 
         mse = F.mse_loss(output, target)
         mse_baseline = F.mse_loss(inputs[:, :, :-1, :], inputs[:, :, 1:, :])
@@ -268,7 +263,7 @@ def train(epoch, best_val_loss):
 
                 target = inputs[:, :, 1:, :]
 
-                loss = nll_gaussian(output, target, args.var)
+                loss = nll_gaussian_v2(output, target, args.var)
 
                 mse = F.mse_loss(output, target)
                 mse_baseline = F.mse_loss(inputs[:, :, :-1, :], inputs[:, :, 1:, :])
@@ -286,7 +281,7 @@ def train(epoch, best_val_loss):
           'mse_baseline_val: {:.10f}'.format(np.mean(mse_baseline_val)),
           'time: {:.4f}s'.format(time.time() - t))
     if args.save_folder and np.mean(loss_val) < best_val_loss:
-        torch.save(model.state_dict(), model_file)
+        torch.save(model.state_dict(), model_file, _use_new_zipfile_serialization=False )
         print('Best model so far, saving...')
         print('Epoch: {:04d}'.format(epoch),
               'nll_train: {:.10f}'.format(np.mean(loss_train)),
@@ -310,67 +305,76 @@ def test():
 
     model.eval()
     model.load_state_dict(torch.load(model_file))
-    for batch_idx, (inputs, relations) in enumerate(test_loader):
-        rel_type_onehot = torch.FloatTensor(inputs.size(0), rel_rec.size(0),
-                                            args.edge_types)
-        rel_type_onehot.zero_()
-        rel_type_onehot.scatter_(2, relations.view(inputs.size(0), -1, 1), 1)
+    for batch_idx, data_list in enumerate(test_loader):
+        with torch.no_grad():
+            for smp_id, smp in enumerate(data_list):
+                inputs, relations, ref2query_list, sim_str = smp[0], smp[1], smp[2], smp[3]
+                num_atoms = inputs.shape[1]
+                # Generate fully-connected interaction graph (sparse graphs would also work)
+                off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
+                rel_rec = np.array(encode_onehot(np.where(off_diag)[0]), dtype=np.float32)
+                rel_send = np.array(encode_onehot(np.where(off_diag)[1]), dtype=np.float32)
+                rel_rec = torch.FloatTensor(rel_rec)
+                rel_send = torch.FloatTensor(rel_send)
+                rel_type_onehot = torch.FloatTensor(inputs.size(0), rel_rec.size(0),
+                                                    args.edge_types)
+                rel_type_onehot.zero_()
+                rel_type_onehot.scatter_(2, relations.view(inputs.size(0), -1, 1), 1)
 
-        if args.fully_connected:
-            zeros = torch.zeros(
-                [rel_type_onehot.size(0), rel_type_onehot.size(1)])
-            ones = torch.ones(
-                [rel_type_onehot.size(0), rel_type_onehot.size(1)])
-            rel_type_onehot = torch.stack([zeros, ones], -1)
+                if args.fully_connected:
+                    zeros = torch.zeros(
+                        [rel_type_onehot.size(0), rel_type_onehot.size(1)])
+                    ones = torch.ones(
+                        [rel_type_onehot.size(0), rel_type_onehot.size(1)])
+                    rel_type_onehot = torch.stack([zeros, ones], -1)
 
-        assert (inputs.size(2) - args.timesteps) >= args.timesteps
+                assert (inputs.size(2) - args.timesteps) >= args.timesteps
 
-        if args.cuda:
-            inputs = inputs.cuda()
-            rel_type_onehot = rel_type_onehot.cuda()
-        else:
-            inputs = inputs.contiguous()
-        inputs, rel_type_onehot = Variable(inputs, volatile=True), Variable(
-            rel_type_onehot, volatile=True)
+                if args.cuda:
+                    inputs = inputs.cuda()
+                    rel_type_onehot = rel_type_onehot.cuda()
+                    rel_rec = rel_rec.cuda()
+                    rel_send = rel_send.cuda()
+                else:
+                    inputs = inputs.contiguous()
 
-        ins_cut = inputs[:, :, -args.timesteps:, :].contiguous()
+                ins_cut = inputs[:, :, -args.timesteps:, :].contiguous()
 
-        output = model(ins_cut, rel_type_onehot, rel_rec, rel_send, 1)
+                output = model(ins_cut, rel_type_onehot, rel_rec, rel_send, 1)
 
-        target = ins_cut[:, :, 1:, :]
+                target = ins_cut[:, :, 1:, :]
 
-        loss = nll_gaussian(output, target, args.var)
+                loss = nll_gaussian_v2(output, target, args.var)
 
-        mse = F.mse_loss(output, target)
-        mse_baseline = F.mse_loss(ins_cut[:, :, :-1, :], ins_cut[:, :, 1:, :])
+                mse = F.mse_loss(output, target)
+                mse_baseline = F.mse_loss(ins_cut[:, :, :-1, :], ins_cut[:, :, 1:, :])
 
-        loss_test.append(loss.item())
-        mse_test.append(mse.data.item())
-        mse_baseline_test.append(mse_baseline.data.item())
+                loss_test.append(loss.item())
+                mse_test.append(mse.data.item())
+                mse_baseline_test.append(mse_baseline.data.item())
 
-        # For plotting purposes
-        if args.decoder == 'rnn':
-            output = model(inputs, rel_type_onehot, rel_rec, rel_send, 100,
-                           burn_in=True, burn_in_steps=args.timesteps)
-            output = output[:, :, args.timesteps:, :]
-            target = inputs[:, :, -args.timesteps:, :]
-            baseline = inputs[:, :, -(args.timesteps + 1):-args.timesteps,
-                       :].expand_as(target)
-        else:
-            data_plot = inputs[:, :, args.timesteps:args.timesteps + 21,
-                        :].contiguous()
-            output = model(data_plot, rel_type_onehot, rel_rec, rel_send, 20)
-            target = data_plot[:, :, 1:, :]
-            baseline = inputs[:, :, args.timesteps:args.timesteps + 1,
-                       :].expand_as(target)
-        plot_sample(data_plot)
-        mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
-        tot_mse += mse.data.cpu().numpy()
-        counter += 1
+                # For plotting purposes
+                if args.decoder == 'rnn':
+                    output = model(inputs, rel_type_onehot, rel_rec, rel_send, 100,
+                                   burn_in=True, burn_in_steps=args.timesteps)
+                    output = output[:, :, args.timesteps:, :]
+                    target = inputs[:, :, args.timesteps+1:, :]
+                    baseline = inputs[:, :, -(args.timesteps + 1):-args.timesteps,
+                               :].expand_as(target)
+                else:
+                    data_plot = inputs[:, :, args.timesteps:args.timesteps + 21,
+                                :].contiguous()
+                    output = model(data_plot, rel_type_onehot, rel_rec, rel_send, 20)
+                    target = data_plot[:, :, 1:, :]
+                    baseline = inputs[:, :, args.timesteps:args.timesteps + 1,
+                               :].expand_as(target)
+                mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
+                tot_mse += mse.data.cpu().numpy()
+                counter += 1
 
-        mse_baseline = ((target - baseline) ** 2).mean(dim=0).mean(dim=0).mean(
-            dim=-1)
-        tot_mse_baseline += mse_baseline.data.cpu().numpy()
+                mse_baseline = ((target - baseline) ** 2).mean(dim=0).mean(dim=0).mean(
+                    dim=-1)
+                tot_mse_baseline += mse_baseline.data.cpu().numpy()
 
     mean_mse = tot_mse / counter
     mse_str = '['

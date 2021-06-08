@@ -105,6 +105,8 @@ parser.add_argument('--add_field_flag', type=int, default=1,
                 help='flag to indicate fields')
 parser.add_argument('--max_pool_charge_training', type=int, default=1,
                 help='max pool for charge training')
+parser.add_argument('--proposal_flag', type=int, default=0,
+                help='results for mask proposals and attributes')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -136,6 +138,8 @@ if args.save_folder:
     os.mkdir(save_folder)
     meta_file = os.path.join(save_folder, 'metadata.pkl')
     model_file = os.path.join(save_folder, 'encoder.pt')
+    model_file_mass = os.path.join(save_folder, 'encoder_mass.pt')
+    model_file_charge = os.path.join(save_folder, 'encoder_charge.pt')
     log_file = os.path.join(save_folder, 'log.txt')
     log = open(log_file, 'w')
 
@@ -165,7 +169,7 @@ if args.cuda:
 
 best_model_params = model.state_dict()
 
-def train(epoch, best_val_accuracy):
+def train(epoch, best_val_accuracy, best_val_accuracy_mass, best_val_accuracy_charge):
     t = time.time()
     loss_train = []
     acc_train = []
@@ -187,7 +191,7 @@ def train(epoch, best_val_accuracy):
         mass_label_list = []
         optimizer.zero_grad()
         for smp in data_list:
-            data, target,ref2query_list, sim_str, mass_label = smp
+            data, target,ref2query_list, sim_str, mass_label, valid_flag = smp
             num_atoms = data.shape[1]
             # Generate off-diagonal interaction graph
             off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
@@ -244,7 +248,9 @@ def train(epoch, best_val_accuracy):
     acc_tr_mass = clevrer_utils.print_monitor(monitor, args.mass_num, 'mass')
     acc_tr = 0.5 * (acc_tr_charge + acc_tr_mass)
     model.eval()
-    monitor = clevrer_utils.monitor_initialization(args)
+    #monitor = clevrer_utils.monitor_initialization(args)
+    monitor = clevrer_utils.monitor_initialization(args, 'charge')
+    monitor = clevrer_utils.monitor_initialization(args, 'mass', monitor)
     for batch_idx, data_list in enumerate(valid_loader):
         output_list = []
         target_list = []
@@ -252,7 +258,7 @@ def train(epoch, best_val_accuracy):
         mass_label_list = []
         with torch.no_grad():
             for smp_id, smp in enumerate(data_list):
-                data, target,ref2query_list, sim_str, mass_label = smp
+                data, target,ref2query_list, sim_str, mass_label, valid_flag = smp
                 num_atoms = data.shape[1]
                 # Generate off-diagonal interaction graph
                 off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
@@ -319,9 +325,27 @@ def train(epoch, best_val_accuracy):
               'acc_val: {:.10f}'.format( 0.5 * (acc_vl_charge+acc_vl_mass) ),
               'time: {:.4f}s'.format(time.time() - t), file=log)
         log.flush()
-    #return np.mean(acc_val)
-    return acc_vl
-
+    if args.save_folder and acc_vl_mass > best_val_accuracy_mass:
+        torch.save(model.state_dict(), model_file_mass)
+        print('Best mass model so far, saving...')
+        print('Epoch: {:04d}'.format(epoch),
+              'loss_train: {:.10f}'.format(np.mean(loss_train)),
+              'acc_train: {:.10f}'.format(acc_tr),
+              'loss_val: {:.10f}'.format(np.mean(loss_val)),
+              'acc_val_mass: {:.10f}'.format(acc_vl_mass),
+              'time: {:.4f}s'.format(time.time() - t), file=log)
+        log.flush()
+    if args.save_folder and acc_vl_charge > best_val_accuracy_charge:
+        torch.save(model.state_dict(), model_file_charge)
+        print('Best charge model so far, saving...')
+        print('Epoch: {:04d}'.format(epoch),
+              'loss_train: {:.10f}'.format(np.mean(loss_train)),
+              'acc_train: {:.10f}'.format(acc_tr),
+              'loss_val: {:.10f}'.format(np.mean(loss_val)),
+              'acc_val_charge: {:.10f}'.format(acc_vl_charge),
+              'time: {:.4f}s'.format(time.time() - t), file=log)
+        log.flush()
+    return acc_vl, acc_vl_mass, acc_vl_charge
 
 def test():
     monitor = clevrer_utils.monitor_initialization(args)
@@ -389,12 +413,20 @@ def test():
 # Train model
 t_total = time.time()
 best_val_accuracy = -1.
+best_val_accuracy_mass = -1.
+best_val_accuracy_charge = -1.
 best_epoch = 0
 for epoch in range(args.epochs):
-    val_acc = train(epoch, best_val_accuracy)
+    val_acc, val_acc_mass, val_acc_charge = train(epoch, best_val_accuracy, 
+            best_val_accuracy_mass, best_val_accuracy_charge)
     if val_acc > best_val_accuracy:
         best_val_accuracy = val_acc
         best_epoch = epoch
+    if val_acc_mass > best_val_accuracy_mass:
+        best_val_accuracy_mass = val_acc_mass
+    if val_acc_charge > best_val_accuracy_charge:
+        best_val_accuracy_charge = val_acc_charge
+
 print("Optimization Finished!")
 print("Best Epoch: {:04d}".format(best_epoch))
 if args.save_folder:
