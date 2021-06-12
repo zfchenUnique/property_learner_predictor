@@ -107,6 +107,13 @@ parser.add_argument('--max_pool_charge_training', type=int, default=1,
                 help='max pool for charge training')
 parser.add_argument('--proposal_flag', type=int, default=0,
                 help='results for mask proposals and attributes')
+parser.add_argument('--save_str', type=str, default='',
+                    help='id folder to save the model and log')
+parser.add_argument('--data_noise_aug', type=int, default=0,
+                help='add random noise for data augumentation.')
+parser.add_argument('--data_noise_weight', type=float, default=0.001,
+                help='add random noise for data augumentation.')
+
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -129,13 +136,14 @@ set_debugger()
 log = None
 # Save model and meta-data. Always saves in a new folder.
 if args.save_folder:
-    exp_counter = 0
-    save_folder = '{}/exp{}/'.format(args.save_folder, exp_counter)
-    while os.path.isdir(save_folder):
-        exp_counter += 1
-        save_folder = os.path.join(args.save_folder,
-                                   'exp{}'.format(exp_counter))
-    os.mkdir(save_folder)
+    if len(args.save_str)==0:
+        save_str = now.isoformat()
+    else:
+        save_str = args.save_str
+    save_folder = '{}/exp_{}/'.format(args.save_folder, save_str)
+    if not os.path.isdir(save_folder):
+        os.mkdir(save_folder)
+    meta_file = os.path.join(save_folder, 'metadata.pkl')
     meta_file = os.path.join(save_folder, 'metadata.pkl')
     model_file = os.path.join(save_folder, 'encoder.pt')
     model_file_mass = os.path.join(save_folder, 'encoder_mass.pt')

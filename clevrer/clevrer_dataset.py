@@ -97,7 +97,7 @@ def get_edge_rel(obj_list, visible_obj_list=None):
     """
     num_obj = len(obj_list)
     edge = np.zeros((num_obj, num_obj ))
-    charge_id_list = [ obj_id for obj_id, obj_info in enumerate(obj_list) if obj_info['charge']!=0]
+    charge_id_list = [ obj_id for obj_id, obj_info in enumerate(obj_list) if 'charge' in obj_info and obj_info['charge']!=0]
     for id1 in charge_id_list:
         for id2 in charge_id_list:
             if id1==id2:
@@ -120,7 +120,7 @@ def get_edge_rel(obj_list, visible_obj_list=None):
     return edge
 
 class clevrerDataset(Dataset):
-    def __init__(self, args, sim_st_idx, sim_ed_idx):
+    def __init__(self, args, sim_st_idx, sim_ed_idx, data_aug_flag=False):
         self.ann_dir = args.ann_dir
         self.track_dir = args.track_dir
         self.ref_dir = args.ref_dir
@@ -130,6 +130,7 @@ class clevrerDataset(Dataset):
         self.sim_list = list(range(sim_st_idx, sim_ed_idx))
         self.sim_st_idx = sim_st_idx
         self.sim_ed_idx = sim_ed_idx
+        self.data_aug_flag = data_aug_flag
         self.args = args
 
     def __len__(self):
@@ -190,29 +191,31 @@ class clevrerDataset(Dataset):
         """
         sim_id = self.sim_list[index]
         sim_str = 'sim_%05d'%(sim_id)
-        ann_path = os.path.join(self.ann_dir, sim_str, 'annotations', 'annotation.json')
+        if self.args.proposal_flag:
+            ann_path = os.path.join(self.ann_dir, sim_str + '.json')
+        else:
+            ann_path = os.path.join(self.ann_dir, sim_str, 'annotations', 'annotation.json')
         with open(ann_path, 'r') as fh:
             ann = json.load(fh)
         shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
         shape_mat = np.expand_dims(np.array(shape_emb), axis=1)
         shape_mat_exp = np.repeat(shape_mat, self.args.num_vis_frm, axis=1)
         # mass info
-        mass_list = [obj_info['mass']==5 for obj_info in ann['config']]
+        mass_list = [ 'mass' in obj_info and obj_info['mass']==5 for obj_info in ann['config']]
         mass_label = np.array(mass_list).astype(np.long)
         mass_label = torch.from_numpy(mass_label)
         
         # load object track
         track_path = os.path.join(self.track_dir, sim_str+'.npy')
         track, vel = load_obj_track(track_path, self.num_vis_frm)
-        # field info
-        # To be added
         obj_ftr = np.concatenate([shape_mat_exp, track, vel], axis=2)
         edge = get_edge_rel(ann['config'])
         obj_ftr = obj_ftr.astype(np.float32)
         edge = edge.astype(np.long)
         obj_ftr = torch.from_numpy(obj_ftr)
+        if self.data_aug_flag:
+            obj_ftr[:, :, 3:] = obj_ftr[:, :, 3:] + torch.randn(obj_ftr[:, :, 3:].size()) * self.args.data_noise_weight
         edge = torch.from_numpy(edge)
-
         if self.args.load_reference_flag: 
             ref_dir = os.path.join(self.ref_dir, sim_str)
             obj_ftr_list, edge_list, ref2query_list = load_reference_ftr(ref_dir, self.ref_track_dir, sim_str, ann, self.args)
@@ -224,7 +227,13 @@ class clevrerDataset(Dataset):
             ref2query_list = None
             obj_ftr = obj_ftr.unsqueeze(dim=0)
             edge = edge.unsqueeze(dim=0)
-        return obj_ftr, edge, ref2query_list, sim_str, mass_label
+        # valid masks for object tracks 
+        valid_flag1 = (obj_ftr[:, :, :, 3] >0).type(torch.uint8) 
+        valid_flag2 = (obj_ftr[:, :, :, 3] <1).type(torch.uint8) 
+        valid_flag3 = (obj_ftr[:, :, :, 4] >0).type(torch.uint8) 
+        valid_flag4 = (obj_ftr[:, :, :, 4] <1).type(torch.uint8) 
+        valid_flag  = valid_flag1 +  valid_flag2  + valid_flag3 + valid_flag4 ==4
+        return obj_ftr, edge, ref2query_list, sim_str, mass_label, valid_flag 
 
 def map_ref_to_query(obj_list_query, obj_list_ref):
     ref2query ={}
@@ -232,19 +241,32 @@ def map_ref_to_query(obj_list_query, obj_list_ref):
         for idx2, obj_info2 in enumerate(obj_list_query):
             if obj_info1['color']==obj_info2['color'] and obj_info1['shape']==obj_info2['shape'] and obj_info1['material']==obj_info2['material']:
                 ref2query[idx1]=idx2
-    assert len(ref2query)==len(obj_list_ref), "every reference object should find their corresponding objects"
+    if len(ref2query)!=len(obj_list_ref):
+        print('Fail to find some correspondence.')
+    #assert len(ref2query)==len(obj_list_ref), "every reference object should find their corresponding objects"
     return ref2query
 
 def load_reference_ftr(ref_dir, ref_track_dir, sim_str, ann_query, args):
-    sub_dir_list = os.listdir(ref_dir)
-    sub_dir_list = sorted(sub_dir_list)
+    if not args.proposal_flag:
+        sub_dir_list = os.listdir(ref_dir)
+        sub_dir_list = sorted(sub_dir_list)
+        if len(sub_dir_list) >4:
+            sub_dir_list = sub_dir_list[:4]
+    else:
+        sub_dir_list = sorted(glob.glob(ref_dir+'*.json'))
     obj_ftr_list = []
     edge_list = []
     ref2query_list = []
     for idx, sub_dir in enumerate(sub_dir_list):
-        full_ann_dir = os.path.join(ref_dir, sub_dir) 
-        ann_path = os.path.join(ref_dir, sub_dir, 'annotations', 'annotation.json')
+        if not args.proposal_flag:
+            full_ann_dir = os.path.join(ref_dir, sub_dir) 
+            ann_path = os.path.join(ref_dir, sub_dir, 'annotations', 'annotation.json')
+        else:
+            ann_path = sub_dir
+            sub_dir = ann_path.split('_')[-1].split('.')[0]
+
         if not os.path.isfile(ann_path):
+            pdb.set_trace()
             print("Warning! Fail to find %s\n"%(ann_path))
             continue 
         with open(ann_path, 'r') as fh:
@@ -315,8 +337,10 @@ def collect_fun(data_list):
 
 def build_dataloader(args, phase='train', sim_st_idx=0, sim_ed_idx=100):
     shuffle_flag = True if phase=='train' else False
-    dataset = clevrerDataset(args, sim_st_idx, sim_ed_idx)
-    data_loader = DataLoader(dataset,  num_workers=args.num_workers, batch_size=args.batch_size, shuffle=shuffle_flag, collate_fn=collect_fun)
+    data_aug_flag = True if phase=='train' and args.data_noise_aug  else False
+    dataset = clevrerDataset(args, sim_st_idx, sim_ed_idx, data_aug_flag)
+    data_loader = DataLoader(dataset,  num_workers=args.num_workers, batch_size=args.batch_size,
+            shuffle=shuffle_flag, collate_fn=collect_fun)
     return data_loader
 
 if __name__=='__main__':

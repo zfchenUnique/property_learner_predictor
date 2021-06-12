@@ -243,7 +243,6 @@ def test():
         log.flush()
         with open(save_result_path, 'w') as fh:
             json.dump({'mass': mass_pred_label_dict, 'charge': charge_pred_label_dict}, fh)
-    pdb.set_trace()
     return np.mean(acc_test)
 
 if args.cuda:

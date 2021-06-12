@@ -3,6 +3,9 @@ import pdb
 import torch
 import numpy as np
 
+def charge_edge_symmetic_prior(output, obj_num):
+    pdb.set_trace()
+
 def pool_mass_prediction(pred_mass, num_obj, ref2query_list, max_pool=False):
     pad_val = torch.min(pred_mass) - 1 if max_pool else 0
     ref_num = len(ref2query_list)
