@@ -113,6 +113,8 @@ parser.add_argument('--data_noise_aug', type=int, default=0,
                 help='add random noise for data augumentation.')
 parser.add_argument('--data_noise_weight', type=float, default=0.001,
                 help='add random noise for data augumentation.')
+parser.add_argument('--ref_num_aug', type=int, default=0,
+                help='add random numbers of reference videos for data augumentation.')
 
 
 args = parser.parse_args()

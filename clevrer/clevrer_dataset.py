@@ -6,6 +6,7 @@ import pdb
 from torch.utils.data import DataLoader, Dataset
 import torch
 import glob
+import random
 
 IMG_H = 320
 IMG_W = 480
@@ -120,7 +121,7 @@ def get_edge_rel(obj_list, visible_obj_list=None):
     return edge
 
 class clevrerDataset(Dataset):
-    def __init__(self, args, sim_st_idx, sim_ed_idx, data_aug_flag=False):
+    def __init__(self, args, sim_st_idx, sim_ed_idx, data_aug_flag=False, ref_aug_flag=False):
         self.ann_dir = args.ann_dir
         self.track_dir = args.track_dir
         self.ref_dir = args.ref_dir
@@ -131,6 +132,7 @@ class clevrerDataset(Dataset):
         self.sim_st_idx = sim_st_idx
         self.sim_ed_idx = sim_ed_idx
         self.data_aug_flag = data_aug_flag
+        self.ref_aug_flag = ref_aug_flag
         self.args = args
 
     def __len__(self):
@@ -213,12 +215,17 @@ class clevrerDataset(Dataset):
         obj_ftr = obj_ftr.astype(np.float32)
         edge = edge.astype(np.long)
         obj_ftr = torch.from_numpy(obj_ftr)
-        if self.data_aug_flag:
-            obj_ftr[:, :, 3:] = obj_ftr[:, :, 3:] + torch.randn(obj_ftr[:, :, 3:].size()) * self.args.data_noise_weight
         edge = torch.from_numpy(edge)
         if self.args.load_reference_flag: 
             ref_dir = os.path.join(self.ref_dir, sim_str)
             obj_ftr_list, edge_list, ref2query_list = load_reference_ftr(ref_dir, self.ref_track_dir, sim_str, ann, self.args)
+            if self.ref_aug_flag:
+                ref_num= len(obj_ftr_list) 
+                smp_num = random.randint(1, ref_num)
+                smp_id_list = random.sample(list(range(ref_num)), smp_num)
+                obj_ftr_list = [obj_ftr_list[smp_id] for smp_id in smp_id_list]
+                edge_list = [edge_list[smp_id] for smp_id in smp_id_list]
+                ref2query_list = [ref2query_list[smp_id] for smp_id in smp_id_list]
             obj_ftr_list.insert(0, obj_ftr)
             edge_list.insert(0, edge)
             obj_ftr = torch.stack(obj_ftr_list, dim=0)
@@ -232,6 +239,8 @@ class clevrerDataset(Dataset):
         valid_flag2 = (obj_ftr[:, :, :, 3] <1).type(torch.uint8) 
         valid_flag3 = (obj_ftr[:, :, :, 4] >0).type(torch.uint8) 
         valid_flag4 = (obj_ftr[:, :, :, 4] <1).type(torch.uint8) 
+        if self.data_aug_flag:
+            obj_ftr[:, :, :, 3:] = obj_ftr[:, :, :, 3:] + torch.randn(obj_ftr[:, :, :, 3:].size()) * self.args.data_noise_weight
         valid_flag  = valid_flag1 +  valid_flag2  + valid_flag3 + valid_flag4 ==4
         return obj_ftr, edge, ref2query_list, sim_str, mass_label, valid_flag 
 
@@ -266,7 +275,6 @@ def load_reference_ftr(ref_dir, ref_track_dir, sim_str, ann_query, args):
             sub_dir = ann_path.split('_')[-1].split('.')[0]
 
         if not os.path.isfile(ann_path):
-            pdb.set_trace()
             print("Warning! Fail to find %s\n"%(ann_path))
             continue 
         with open(ann_path, 'r') as fh:
@@ -338,7 +346,8 @@ def collect_fun(data_list):
 def build_dataloader(args, phase='train', sim_st_idx=0, sim_ed_idx=100):
     shuffle_flag = True if phase=='train' else False
     data_aug_flag = True if phase=='train' and args.data_noise_aug  else False
-    dataset = clevrerDataset(args, sim_st_idx, sim_ed_idx, data_aug_flag)
+    ref_aug_flag = True if phase=='train' and args.ref_num_aug  else False
+    dataset = clevrerDataset(args, sim_st_idx, sim_ed_idx, data_aug_flag, ref_aug_flag)
     data_loader = DataLoader(dataset,  num_workers=args.num_workers, batch_size=args.batch_size,
             shuffle=shuffle_flag, collate_fn=collect_fun)
     return data_loader

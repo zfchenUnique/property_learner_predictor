@@ -7,7 +7,7 @@ def charge_edge_symmetic_prior(output, obj_num):
     pdb.set_trace()
 
 def pool_mass_prediction(pred_mass, num_obj, ref2query_list, max_pool=False):
-    pad_val = torch.min(pred_mass) - 1 if max_pool else 0
+    pad_val = min(torch.min(pred_mass) - 1, -1) if max_pool else 0
     ref_num = len(ref2query_list)
     pred_mass.shape[1] == num_obj
     if max_pool:
@@ -60,7 +60,7 @@ def monitor_initialization(args, class_id='charge', monitor={}):
     return monitor
 
 def max_pool_prediction(output, num_obj, ref2query_list):
-    pad_val = torch.min(output) - 1
+    pad_val = min(torch.min(output) - 1, -1)
     ref_num = len(ref2query_list)
     assert output.shape[0]==ref_num+1
     for ref_id in range(ref_num):
