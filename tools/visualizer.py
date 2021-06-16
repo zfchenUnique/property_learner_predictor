@@ -15,7 +15,7 @@ def parse_log_info(log_path):
         for line in fh.readlines():
             print(line)
             eles = line.split(' ')
-            if len(eles) < 5:
+            if len(eles) != 12:
                 continue
             if "acc_val:" in eles:
                 ep_list.append(int(eles[1]))
@@ -45,17 +45,78 @@ def draw_training_log():
             output = parse_log_info(log_path)
             ep_list_mass, acc_train_mass_list, acc_val_mass_list = output[-6:-3]
             ep_list_charge, acc_train_charge_list, acc_val_charge_list = output[-3:]
-            if ty=='mass':
-                plt.plot(ep_list_mass, acc_train_mass_list, label=label_list[idx], marker="o" )
-                plt.plot(ep_list_mass, acc_val_mass_list, label=label_list[idx], marker="*" )
+            if ty == 'mass':
+                plt.plot(ep_list_mass, acc_train_mass_list,
+                         label=label_list[idx], marker="o")
+                plt.plot(ep_list_mass, acc_val_mass_list,
+                         label=label_list[idx], marker="*")
                 img_path = 'mass_acc.png'
             else:
-                plt.plot(ep_list_charge, acc_train_charge_list, label=label_list[idx], marker="o" )
-                plt.plot(ep_list_charge, acc_val_charge_list, label=label_list[idx], marker="*" )
+                plt.plot(ep_list_charge, acc_train_charge_list,
+                         label=label_list[idx], marker="o")
+                plt.plot(ep_list_charge, acc_val_charge_list,
+                         label=label_list[idx], marker="*")
                 img_path = 'charge_acc.png'
             plt.legend()
         plt.savefig(img_path)
-    pdb.set_trace()
+        plt.close()
+
+def draw_training_log_v2():
+    fn_path = 'logs/exp_v15_encoder/log.txt'
+    fn_noise_path1 = 'logs/exp_v15_noise_0001/log.txt'
+    fn_noise_path2 = 'logs/exp_v15_noise_001/log.txt'
+    fn_noise_path3 = 'logs/exp_v15_noise_01/log.txt'
+    fn_list = [fn_path, fn_noise_path1, fn_noise_path2, fn_noise_path3]
+    label_list = ['more data', '0.0001', '0.001', '0.01']
+    for ty in ['mass', 'charge']:
+        for idx, log_path in enumerate(fn_list):
+            output = parse_log_info(log_path)
+            ep_list_mass, acc_train_mass_list, acc_val_mass_list = output[-6:-3]
+            ep_list_charge, acc_train_charge_list, acc_val_charge_list = output[-3:]
+            if ty == 'mass':
+                plt.plot(ep_list_mass, acc_train_mass_list,
+                         label=label_list[idx], marker="o")
+                plt.plot(ep_list_mass, acc_val_mass_list,
+                         label=label_list[idx], marker="*")
+                img_path = 'mass_acc_noise.png'
+            else:
+                plt.plot(ep_list_charge, acc_train_charge_list,
+                         label=label_list[idx], marker="o")
+                plt.plot(ep_list_charge, acc_val_charge_list,
+                         label=label_list[idx], marker="*")
+                img_path = 'charge_acc_noise.png'
+            plt.legend()
+        plt.savefig(img_path)
+        plt.close()
+    #pdb.set_trace()
+
+def draw_training_log_v3():
+    fn_path = 'logs/exp_v15_encoder/log.txt'
+    fn_noise_path1 = 'logs/exp_v15_mask_025/log.txt'
+    fn_noise_path2 = 'logs/exp_v15_mask_005/log.txt'
+    fn_noise_path3 = 'logs/exp_v15_mask_075/log.txt'
+    fn_list = [fn_path, fn_noise_path1, fn_noise_path2, fn_noise_path3]
+    label_list = ['more data', '0.25', '0.5', '0.75']
+    for ty in ['mass', 'charge']:
+        for idx, log_path in enumerate(fn_list):
+            output = parse_log_info(log_path)
+            ep_list_mass, acc_train_mass_list, acc_val_mass_list = output[-6:-3]
+            ep_list_charge, acc_train_charge_list, acc_val_charge_list = output[-3:]
+            if ty == 'mass':
+                plt.plot(ep_list_mass, acc_train_mass_list,
+                         label=label_list[idx], marker="o")
+                plt.plot(ep_list_mass, acc_val_mass_list,
+                         label=label_list[idx], marker="*")
+                img_path = 'mass_acc_mask.png'
+            else:
+                plt.plot(ep_list_charge, acc_train_charge_list,
+                         label=label_list[idx], marker="o")
+                plt.plot(ep_list_charge, acc_val_charge_list,
+                         label=label_list[idx], marker="*")
+                img_path = 'charge_acc_mask.png'
+            plt.legend()
+        plt.savefig(img_path)
+        plt.close()
 
 if __name__ == '__main__':
-    draw_training_log()
+    draw_training_log_v2()

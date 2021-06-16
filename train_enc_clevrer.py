@@ -14,7 +14,6 @@ from modules_clevrer import *
 import pdb
 from clevrer.clevrer_dataset import build_dataloader
 import clevrer.utils as clevrer_utils
-
 torch.autograd.set_detect_anomaly(True)
 
 # A pre-define class weight for class balance during calculating loss
@@ -115,6 +114,12 @@ parser.add_argument('--data_noise_weight', type=float, default=0.001,
                 help='add random noise for data augumentation.')
 parser.add_argument('--ref_num_aug', type=int, default=0,
                 help='add random numbers of reference videos for data augumentation.')
+parser.add_argument('--mass_only_flag', type=int, default=0,
+                help='Flag to use mass only to supervise')
+parser.add_argument('--mask_aug_prob', type=float, default=0,
+                help='mask out trajectories to make predictions')
+parser.add_argument('--charge_only_flag', type=int, default=0,
+                help='Flag to use mass only to supervise')
 
 
 args = parser.parse_args()
@@ -238,7 +243,12 @@ def train(epoch, best_val_accuracy, best_val_accuracy_mass, best_val_accuracy_ch
 
         loss_charge = F.cross_entropy(output_cat, target_cat, weight=CHARGE_WEIGHT)
         loss_mass = F.cross_entropy(mass_cat, mass_label_cat, weight=MASS_WEIGHT)
-        loss  = loss_mass + loss_charge 
+        if args.mass_only_flag:
+            loss  = loss_mass
+        elif args.charge_only_flag:
+            loss  = loss_charge
+        else:
+            loss  = loss_mass + loss_charge 
         loss.backward()
         optimizer.step()
 
@@ -324,7 +334,10 @@ def train(epoch, best_val_accuracy, best_val_accuracy_mass, best_val_accuracy_ch
           'loss_val_mass: {:.10f}'.format(np.mean(loss_mass_val)),
           'loss_val_charge: {:.10f}'.format(np.mean(loss_charge_val)),
           'acc_val: {:.10f}'.format(acc_vl),
-          'time: {:.4f}s'.format(time.time() - t))
+          'acc_val_mass: {:.10f}'.format(acc_vl_mass),
+          'acc_val_charge: {:.10f}'.format(acc_vl_charge),
+          'time: {:.4f}s'.format(time.time() - t), file=log)
+    log.flush()
     if args.save_folder and 0.5 * (acc_vl_charge + acc_vl_mass) > best_val_accuracy:
         torch.save(model.state_dict(), model_file)
         print('Best model so far, saving...')
@@ -358,18 +371,23 @@ def train(epoch, best_val_accuracy, best_val_accuracy_mass, best_val_accuracy_ch
     return acc_vl, acc_vl_mass, acc_vl_charge
 
 def test():
-    monitor = clevrer_utils.monitor_initialization(args)
+    monitor = clevrer_utils.monitor_initialization(args, 'charge')
+    monitor = clevrer_utils.monitor_initialization(args, 'mass', monitor)
     t = time.time()
     loss_test = []
     acc_test = []
     model.eval()
     model.load_state_dict(torch.load(model_file))
+    mass_pred_label_dict = {}
+    charge_pred_label_dict = {}
     for batch_idx, data_list in enumerate(test_loader):
         output_list = []
         target_list = []
+        mass_list = []
+        mass_label_list = []
         with torch.no_grad():
             for smp_id, smp in enumerate(data_list):
-                data, target, ref2query_list = smp[0], smp[1], smp[2]
+                data, target, ref2query_list, sim_str, mass_label, valid_flag = smp
                 num_atoms = data.shape[1]
                 # Generate off-diagonal interaction graph
                 off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
@@ -381,7 +399,8 @@ def test():
                     data, target = data.cuda(), target.cuda()
                     rel_rec = rel_rec.cuda()
                     rel_send = rel_send.cuda()
-                output, mass_pred = model(data, rel_rec, rel_send)
+                    mass_label = mass_label.cuda()
+                output, pred_mass = model(data, rel_rec, rel_send)
 
                 if args.max_prediction_flag:
                     output_pool = clevrer_utils.max_pool_prediction(output, num_atoms, ref2query_list)
@@ -390,18 +409,30 @@ def test():
                 else:
                     output_list.append(output.view(-1, args.num_classes))
                     target_list.append(target.view(-1))
+                mass_pool = clevrer_utils.pool_mass_prediction(pred_mass, num_atoms, ref2query_list, args.max_pool_mass)
+                mass_list.append(mass_pool.view(-1, args.mass_num))
+                mass_label_list.append(mass_label)
+                
+                mass_pred_to_list = mass_pool.view(-1, args.mass_num).max(1)[1].cpu().numpy().tolist()
+                mass_pred_label_dict[sim_str] = mass_pred_to_list 
+                charge_pred_to_list = output_pool.view(-1, args.num_classes).cpu().numpy().tolist()
+                charge_pred_label_dict[sim_str] = charge_pred_to_list 
+            
             output = torch.cat(output_list, dim=0)
             target = torch.cat(target_list, dim=0)
             # Flatten batch dim
             output = output.view(-1, args.num_classes)
             target = target.view(-1)
+            mass = torch.cat(mass_list, dim=0)
+            mass_label = torch.cat(mass_label_list, dim=0)
 
-            loss = F.cross_entropy(output, target, weight=CHARGE_WEIGHT)
-
+            loss = F.cross_entropy(output, target, weight=CLASS_WEIGHT)
+            
             pred = output.data.max(1, keepdim=True)[1]
             correct = pred.eq(target.data.view_as(pred)).cpu().sum()
-            acc = correct / pred.size(0)
-            monitor, acc_list = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor)
+            acc = correct*1.0 / pred.size(0)
+            monitor, acc_list_charge = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor, 'charge')
+            monitor, acc_list_mass = clevrer_utils.compute_acc_by_class(mass, mass_label, args.mass_num, monitor, 'mass')
 
             loss_test.append(loss.item())
             acc_test.append(acc)
@@ -410,7 +441,8 @@ def test():
     print('--------------------------------')
     print('loss_test: {:.10f}'.format(np.mean(loss_test)),
           'acc_test: {:.10f}'.format(np.mean(acc_test)))
-    acc = clevrer_utils.print_monitor(monitor, args.num_classes)
+    acc_tr_charge = clevrer_utils.print_monitor(monitor, args.num_classes, 'charge')
+    acc_tr_mass = clevrer_utils.print_monitor(monitor, args.mass_num, 'mass')
     if args.save_folder:
         print('--------------------------------', file=log)
         print('--------Testing-----------------', file=log)
@@ -418,6 +450,8 @@ def test():
         print('loss_test: {:.10f}'.format(np.mean(loss_test)),
               'acc_test: {:.10f}'.format(np.mean(acc_test)), file=log)
         log.flush()
+        with open(save_result_path, 'w') as fh:
+            json.dump({'mass': mass_pred_label_dict, 'charge': charge_pred_label_dict}, fh)
     return np.mean(acc_test)
 
 # Train model

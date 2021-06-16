@@ -109,6 +109,14 @@ parser.add_argument('--max_pool_charge_training', type=int, default=1,
                 help='max pool for charge training')
 parser.add_argument('--proposal_flag', type=int, default=0,
                 help='results for mask proposals and attributes')
+parser.add_argument('--data_noise_aug', type=int, default=0,
+                help='add random noise for data augumentation.')
+parser.add_argument('--data_noise_weight', type=float, default=0.001,
+                help='add random noise for data augumentation.')
+parser.add_argument('--ref_num_aug', type=int, default=0,
+                help='add random numbers of reference videos for data augumentation.')
+parser.add_argument('--save_str', type=str, default='',
+                    help='id folder to save the model and log')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()

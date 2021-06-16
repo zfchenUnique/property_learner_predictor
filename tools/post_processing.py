@@ -2,6 +2,7 @@ import json
 import pdb
 import os
 import numpy as np
+import argparse
 
 MASS_LIST = [1, 5]
 
@@ -124,8 +125,14 @@ def parse_results(prp_config_dir, des_prp_dir, raw_result_charge_path, raw_resul
             json.dump(out_dict, fh)
 
 if __name__=='__main__':
-    raw_result_charge_path = 'logs/exp19/raw_prediction_charge.json'
-    raw_result_mass_path = 'logs/exp19/raw_prediction_charge.json'
-    prp_config_dir = '/home/zfchen/code/output/ns-vqa_output/v14_prp/config'
-    des_prp_dir = '/home/zfchen/code/output/ns-vqa_output/v14_prp_pred_v2/config'
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--raw_result_charge_path', type=str, default='logs/exp19/raw_prediction_charge.json')
+    parser.add_argument('--raw_result_mass_path', type=str, default='logs/exp19/raw_prediction_charge.json')
+    parser.add_argument('--prp_config_dir', type=str, default='/home/zfchen/code/output/ns-vqa_output/v14_prp/config')
+    parser.add_argument('--des_prp_dir', type=str, default='/home/zfchen/code/output/ns-vqa_output/v14_prp_pred_v2/config')
+    args = parser.parse_args()
+    raw_result_charge_path = args.raw_result_charge_path
+    raw_result_mass_path = args.raw_result_mass_path
+    prp_config_dir = args.prp_config_dir
+    des_prp_dir = args.des_prp_dir 
     parse_results(prp_config_dir, des_prp_dir, raw_result_charge_path, raw_result_mass_path)
