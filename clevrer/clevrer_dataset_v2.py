@@ -124,10 +124,18 @@ def get_edge_rel(obj_list, visible_obj_list=None):
 
 class clevrerDataset(Dataset):
     def __init__(self, args, sim_st_idx, sim_ed_idx, phase):
-        self.ann_dir = args.ann_dir
-        self.track_dir = args.track_dir
-        self.ref_dir = args.ref_dir
-        self.ref_track_dir = args.ref_track_dir
+        
+        if phase=='val':
+            self.ann_dir = args.ann_dir_val
+            self.track_dir = args.track_dir_val
+            self.ref_dir = args.ref_dir_val
+            self.ref_track_dir = args.ref_track_dir_val
+        elif phase=='train' or phase=='test':
+            self.ann_dir = args.ann_dir
+            self.track_dir = args.track_dir
+            self.ref_dir = args.ref_dir
+            self.ref_track_dir = args.ref_track_dir
+
         self.ref_num = args.ref_num
         self.num_vis_frm = args.num_vis_frm
         self.sim_list = list(range(sim_st_idx, sim_ed_idx))
@@ -141,6 +149,9 @@ class clevrerDataset(Dataset):
             self.__generate_valid_idx_for_render_decoder()
         else:
             self.__read_valid_idx_for_render_decoder()
+        if args.use_ref_flag:        
+            self.valid_info_ref_fn = '%s_valid_ref_idx.txt'%phase
+            self.__generate_valid_ref_idx_for_render_decoder()
 
     def __read_valid_idx_for_render_decoder(self):
         fin = open(self.valid_info_fn, 'r').readlines()
@@ -166,10 +177,77 @@ class clevrerDataset(Dataset):
                 ann = json.load(fh)
                 self.object_anns[sim_id] = {'config': ann['config']}
 
-    def __generate_valid_idx_for_render_decoder(self):
+    def __generate_valid_ref_idx_for_render_decoder(self):
         frame_offset = self.args.frame_offset
-        self.n_valid_idx = 0
-        self.valid_idx = []
+        if not hasattr(self, 'valid_idx'):
+            self.valid_idx = []
+        self.n_valid_idx = len(self.valid_idx)
+        self.object_ref_tracks = {}
+        self.object_ref_anns = {}
+        fout = open(self.valid_info_ref_fn, 'w')
+        for idx, sim_id in enumerate(self.sim_list):
+            if idx % 500 ==0:
+                print('preparing the %d/%d videos\n'%(idx, self.sim_ed_idx - self.sim_st_idx))
+            sim_str = 'sim_%05d'%(sim_id)
+            self.object_ref_anns[sim_id] = {}
+            self.object_ref_tracks[sim_id] = {} 
+            for ref_id in range(self.ref_num):
+                # object ann
+                ann_path = os.path.join(self.ref_dir, sim_str, str(ref_id), 'annotations', 'annotation.json')
+                with open(ann_path, 'r') as fh:
+                    ann = json.load(fh)
+                    if self.args.exclude_field_video and len(ann['field_config'])  >0:
+                        continue
+                    self.object_ref_anns[sim_id][ref_id] = {'config': ann['config']}
+                # load object track
+                track_path = os.path.join(self.ref_track_dir, sim_str+'_'+str(ref_id)+'.npy')
+                track, vel = load_obj_track(track_path, self.num_vis_frm)
+                self.object_ref_tracks[sim_id][ref_id] = track
+
+                num_obj, num_frm, box_dim = track.shape
+                valid_flag = np.zeros((num_obj, num_frm), dtype=np.int8)
+                for dim_id in range(box_dim):
+                    valid_flag_tmp1 = np.array(track[:, :, dim_id]>0, dtype=np.int8)
+                    valid_flag_tmp2 = np.array(track[:, :, dim_id]<1, dtype=np.int8)
+                    valid_flag +=valid_flag_tmp1
+                    valid_flag +=valid_flag_tmp2
+                box_flag = valid_flag == (box_dim*2) 
+
+                n_his = self.args.n_his
+                n_roll = self.args.n_roll
+                frame_offset = self.args.frame_offset
+                for idx2 in range(
+                        n_his * frame_offset,
+                        self.num_vis_frm - n_roll * frame_offset):
+                    valid = True if box_flag[:, idx2].sum()>0 else False
+                    if not valid:
+                        continue
+                    obj_appear = box_flag[:, idx2]
+                    # check history windows are valid
+                    for idx3 in range(n_his):
+                        idx_ref = idx2 - (idx3+1) * frame_offset
+                        consistence = (obj_appear == box_flag[:, idx_ref]).sum()==num_obj
+                        if not consistence:
+                            valid = False
+                            break
+                    # check future windows are valid
+                    for idx3 in range(n_roll):
+                        idx_next = idx2 + frame_offset * (idx3+1)
+                        consistence = (obj_appear == box_flag[:, idx_next]).sum()==num_obj
+                        if not consistence:
+                            valid = False
+                            break 
+                    if valid:
+                        self.valid_idx.append((sim_id, idx2, ref_id))
+                        fout.write("%d %d %d\n"%(sim_id, idx2, ref_id))
+                        self.n_valid_idx  +=1
+        fout.close()
+
+    def __generate_valid_idx_for_render_decoder(self):
+        if not hasattr(self, 'valid_idx'):
+            self.valid_idx = []
+        frame_offset = self.args.frame_offset
+        self.n_valid_idx = len(self.valid_idx)
         self.object_tracks = {}
         self.object_anns = {}
         fout = open(self.valid_info_fn, 'w')
@@ -247,9 +325,16 @@ class clevrerDataset(Dataset):
 
         state_dim = self.args.dims
         frame_offset = self.args.frame_offset
-        sim_id, idx_frame = self.valid_idx[idx][0], self.valid_idx[idx][1]
+        if len(self.valid_idx[idx])==2:
+            sim_id, idx_frame = self.valid_idx[idx][0], self.valid_idx[idx][1]
+        elif len(self.valid_idx[idx])==3:
+            sim_id, idx_frame, ref_id = self.valid_idx[idx][0], self.valid_idx[idx][1], self.valid_idx[idx][2]
+
         sim_str = 'sim_%05d'%(sim_id)
-        ann = self.object_anns[sim_id]
+        if len(self.valid_idx[idx])==2:
+            ann = self.object_anns[sim_id]
+        else:
+            ann = self.object_ref_anns[sim_id][ref_id]
         shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
         shape_mat = np.expand_dims(np.array(shape_emb), axis=1)
         shape_mat_exp = np.repeat(shape_mat, n_his+n_roll+1, axis=1)
@@ -260,11 +345,14 @@ class clevrerDataset(Dataset):
         mass_label_exp = np.expand_dims(mass_label_exp, axis=2)
         # load object track
         objs = []
+        if len(self.valid_idx[idx])==2:
+            track = self.object_tracks[sim_id] 
+        elif len(self.valid_idx[idx])==3:
+            track = self.object_ref_tracks[sim_id][ref_id] 
         for idx2 in range(
                 idx_frame - n_his * frame_offset, 
                 idx_frame + frame_offset * n_roll + 1,
                 frame_offset):
-            track = self.object_tracks[sim_id] 
             obj_loc = track[:, idx2]
             objs.append(obj_loc)
 
@@ -281,7 +369,7 @@ class clevrerDataset(Dataset):
         edge = torch.from_numpy(edge)
         # batch size 1  & time slide 1
         x = obj_ftr[:, :n_his+1]
-        x[:, :, 4:] = x[:, :, 4:] + torch.randn(x[:, :, 4:].size()) * 0.001
+        x[:, :, 4:] = x[:, :, 4:] + torch.rand(x[:, :, 4:].size()) * 0.001
         x = x.view(1, obj_ftr.shape[0], 1, -1)
         label = obj_ftr[:, n_his+1:].view(1, obj_ftr.shape[0], n_roll, -1)
         edge = edge.view(1, -1)
@@ -304,81 +392,6 @@ def map_ref_to_query(obj_list_query, obj_list_ref):
                 ref2query[idx1]=idx2
     assert len(ref2query)==len(obj_list_ref), "every reference object should find their corresponding objects"
     return ref2query
-
-def load_reference_ftr(ref_dir, ref_track_dir, sim_str, ann_query, args):
-    sub_dir_list = os.listdir(ref_dir)
-    sub_dir_list = sorted(sub_dir_list)
-    obj_ftr_list = []
-    edge_list = []
-    ref2query_list = []
-    for idx, sub_dir in enumerate(sub_dir_list):
-        full_ann_dir = os.path.join(ref_dir, sub_dir) 
-        ann_path = os.path.join(ref_dir, sub_dir, 'annotations', 'annotation.json')
-        if not os.path.isfile(ann_path):
-            print("Warning! Fail to find %s\n"%(ann_path))
-            continue 
-        with open(ann_path, 'r') as fh:
-            ann = json.load(fh)
-        ref2query = map_ref_to_query(ann_query['config'], ann['config']) 
-        visible_list = list(ref2query.values())
-        shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
-        shape_mat = np.expand_dims(np.array(shape_emb), axis=1)
-        shape_mat_exp = np.repeat(shape_mat, args.num_vis_frm, axis=1)
-        track_path = os.path.join(ref_track_dir, sim_str+ '_' + sub_dir  +'.npy')
-        track, vel = load_obj_track(track_path, args.num_vis_frm)
-
-        obj_ftr = np.concatenate([shape_mat_exp, track, vel], axis=2)
-        # align the reference objects with the target object
-        obj_num_ori = len(ann_query['config'])
-        obj_ftr_pad  = -1 * np.ones((obj_num_ori, obj_ftr.shape[1], obj_ftr.shape[2]), dtype=np.float32)
-        for idx1, idx2 in ref2query.items():
-            obj_ftr_pad[idx2] = obj_ftr[idx1]
-        # Only shows the labels for the visible objects
-        edge = get_edge_rel(ann_query['config'], visible_list)
-        obj_ftr_pad = obj_ftr_pad.astype(np.float32)
-        edge = edge.astype(np.long)
-        obj_ftr_pad = torch.from_numpy(obj_ftr_pad)
-        edge = torch.from_numpy(edge)
-        obj_ftr_list.append(obj_ftr_pad)
-        edge_list.append(edge)
-        ref2query_list.append(ref2query)
-    return obj_ftr_list, edge_list, ref2query_list
-
-def load_reference_ftr_sim(ref_dir, sim_str, ann_query, args):
-    fn_name = os.path.join(ref_dir, sim_str+'_*.json')
-    fn_list = glob.glob(fn_name)
-    fn_list = sorted(fn_list)
-    obj_ftr_list = []
-    edge_list = []
-    ref2query_list = []
-    for idx, fn in enumerate(fn_list):
-        with open(fn, 'r') as fh:
-            ann = json.load(fh)
-        ref2query = map_ref_to_query(ann_query['config'], ann['config']) 
-        visible_list = list(ref2query.values())
-        shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
-        shape_mat = np.expand_dims(np.array(shape_emb), axis=1)
-        shape_mat_exp = np.repeat(shape_mat, args.num_vis_frm, axis=1)
-        track, vel = sample_obj_track(ann['motion'], args.num_vis_frm, args.sample_every)
-        # field info
-        field = get_field_info_sim(track, ann_query, args.add_field_flag)
-        # num_obj * num_vis_frm * 2+2+3
-        obj_ftr = np.concatenate([shape_mat_exp, track, vel, field], axis=2)
-        # align the reference objects with the target object
-        obj_num_ori = len(ann_query['config'])
-        obj_ftr_pad  = -1 * np.ones((obj_num_ori, obj_ftr.shape[1], obj_ftr.shape[2]), dtype=np.float32)
-        for idx1, idx2 in ref2query.items():
-            obj_ftr_pad[idx2] = obj_ftr[idx1]
-        # Only shows the labels for the visible objects
-        edge = get_edge_rel(ann_query['config'], visible_list)
-        obj_ftr_pad = obj_ftr_pad.astype(np.float32)
-        edge = edge.astype(np.long)
-        obj_ftr_pad = torch.from_numpy(obj_ftr_pad)
-        edge = torch.from_numpy(edge)
-        obj_ftr_list.append(obj_ftr_pad)
-        edge_list.append(edge)
-        ref2query_list.append(ref2query)
-    return obj_ftr_list, edge_list, ref2query_list
 
 def collect_fun(data_list):
     return data_list

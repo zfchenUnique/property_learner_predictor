@@ -117,6 +117,8 @@ parser.add_argument('--ref_num_aug', type=int, default=0,
                 help='add random numbers of reference videos for data augumentation.')
 parser.add_argument('--save_str', type=str, default='',
                     help='id folder to save the model and log')
+parser.add_argument('--version', type=str, default='',
+                    help='')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -142,9 +144,9 @@ meta_file = os.path.join(save_folder, 'test_metadata.pkl')
 model_file = os.path.join(save_folder, 'encoder.pt')
 model_file_mass = os.path.join(save_folder, 'encoder_mass.pt')
 model_file_charge = os.path.join(save_folder, 'encoder_charge.pt')
-save_result_path = os.path.join(save_folder, 'raw_prediction.json')
-save_result_path_mass = os.path.join(save_folder, 'raw_prediction_mass.json')
-save_result_path_charge = os.path.join(save_folder, 'raw_prediction_charge.json')
+save_result_path = os.path.join(save_folder, 'raw_prediction_%s.json'%(args.version))
+save_result_path_mass = os.path.join(save_folder, 'raw_prediction_mass_%s.json'%(args.version))
+save_result_path_charge = os.path.join(save_folder, 'raw_prediction_charge_%s.json'%(args.version))
 
 if args.mass_best_flag:
     model_file = model_file_mass

@@ -113,6 +113,16 @@ parser.add_argument('--save_str', type=str, default='',
                     help='id folder to save the model and log')
 parser.add_argument('--exclude_field_video', type=int, default=0,
                 help='exclude videos with fields during training')
+parser.add_argument('--ann_dir_val', type=str, default="../../render/output/causal_sim_v9_3_1",
+                help='directory for target video annotation')
+parser.add_argument('--ref_dir_val', type=str, default="../../render/output/reference_v9_3_1",
+                help='directory for reference video annotation.')
+parser.add_argument('--track_dir_val', type=str, default="../../render/output/box_causal_sim_v9_3_1",
+                help='directory for target track annotation')
+parser.add_argument('--ref_track_dir_val', type=str, default="../../render/output/box_reference_v9",
+                help='directory for reference track annotation')
+parser.add_argument('--use_ref_flag', type=int, default=0,
+                help='Use reference_frames to learn dynamics')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -146,7 +156,6 @@ else:
 
 train_loader = build_dataloader_v2(args, phase='train', sim_st_idx=args.train_st_idx, sim_ed_idx= args.train_ed_idx)
 valid_loader = build_dataloader_v2(args, phase='val', sim_st_idx=args.val_st_idx, sim_ed_idx=args.val_ed_idx)
-test_loader = build_dataloader_v2(args, phase='test', sim_st_idx=args.test_st_idx, sim_ed_idx=args.test_ed_idx)
 
 if args.decoder == 'mlp':
     model = MLPDecoder(n_in_node=args.dims,
@@ -350,124 +359,6 @@ def train(epoch, best_val_loss):
         log.flush()
     return loss_val /count_val
 
-
-def test():
-    loss_test = []
-    mse_baseline_test = []
-    mse_test = []
-    tot_mse = 0
-    tot_mse_baseline = 0
-    counter = 0
-
-    model.eval()
-    model.load_state_dict(torch.load(model_file))
-    for batch_idx, data_list in enumerate(test_loader):
-        with torch.no_grad():
-            for smp_id, smp in enumerate(data_list):
-                inputs, relations, ref2query_list, sim_str = smp[0], smp[1], smp[2], smp[3]
-                num_atoms = inputs.shape[1]
-                # Generate fully-connected interaction graph (sparse graphs would also work)
-                off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
-                rel_rec = np.array(encode_onehot(np.where(off_diag)[0]), dtype=np.float32)
-                rel_send = np.array(encode_onehot(np.where(off_diag)[1]), dtype=np.float32)
-                rel_rec = torch.FloatTensor(rel_rec)
-                rel_send = torch.FloatTensor(rel_send)
-                rel_type_onehot = torch.FloatTensor(inputs.size(0), rel_rec.size(0),
-                                                    args.edge_types)
-                rel_type_onehot.zero_()
-                rel_type_onehot.scatter_(2, relations.view(inputs.size(0), -1, 1), 1)
-
-                if args.fully_connected:
-                    zeros = torch.zeros(
-                        [rel_type_onehot.size(0), rel_type_onehot.size(1)])
-                    ones = torch.ones(
-                        [rel_type_onehot.size(0), rel_type_onehot.size(1)])
-                    rel_type_onehot = torch.stack([zeros, ones], -1)
-
-                assert (inputs.size(2) - args.timesteps) >= args.timesteps
-
-                if args.cuda:
-                    inputs = inputs.cuda()
-                    rel_type_onehot = rel_type_onehot.cuda()
-                    rel_rec = rel_rec.cuda()
-                    rel_send = rel_send.cuda()
-                else:
-                    inputs = inputs.contiguous()
-
-                
-                ins_cut = inputs[:, :, -args.timesteps:, :].contiguous()
-
-                output = model(ins_cut, rel_type_onehot, rel_rec, rel_send, args.n_roll)
-
-                target = ins_cut[:, :, 1:, :]
-
-                loss = nll_gaussian_v2(output, target, args.var)
-
-                mse = F.mse_loss(output, target)
-                mse_baseline = F.mse_loss(ins_cut[:, :, :-1, :], ins_cut[:, :, 1:, :])
-
-                loss_test.append(loss.item())
-                mse_test.append(mse.data.item())
-                mse_baseline_test.append(mse_baseline.data.item())
-
-                # For plotting purposes
-                if args.decoder == 'rnn':
-                    output = model(inputs, rel_type_onehot, rel_rec, rel_send, 100,
-                                   burn_in=True, burn_in_steps=args.timesteps)
-                    output = output[:, :, args.timesteps:, :]
-                    target = inputs[:, :, args.timesteps+1:, :]
-                    baseline = inputs[:, :, -(args.timesteps + 1):-args.timesteps,
-                               :].expand_as(target)
-                else:
-                    data_plot = inputs[:, :, args.timesteps:args.timesteps + 21,
-                                :].contiguous()
-                    output = model(data_plot, rel_type_onehot, rel_rec, rel_send, 20)
-                    target = data_plot[:, :, 1:, :]
-                    baseline = inputs[:, :, args.timesteps:args.timesteps + 1,
-                               :].expand_as(target)
-                mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
-                tot_mse += mse.data.cpu().numpy()
-                counter += 1
-
-                mse_baseline = ((target - baseline) ** 2).mean(dim=0).mean(dim=0).mean(
-                    dim=-1)
-                tot_mse_baseline += mse_baseline.data.cpu().numpy()
-
-    mean_mse = tot_mse / counter
-    mse_str = '['
-    for mse_step in mean_mse[:-1]:
-        mse_str += " {:.12f} ,".format(mse_step)
-    mse_str += " {:.12f} ".format(mean_mse[-1])
-    mse_str += ']'
-
-    mean_mse_baseline = tot_mse_baseline / counter
-    mse_baseline_str = '['
-    for mse_step in mean_mse_baseline[:-1]:
-        mse_baseline_str += " {:.12f} ,".format(mse_step)
-    mse_baseline_str += " {:.12f} ".format(mean_mse_baseline[-1])
-    mse_baseline_str += ']'
-
-    print('--------------------------------')
-    print('--------Testing-----------------')
-    print('--------------------------------')
-    print('nll_test: {:.10f}'.format(np.mean(loss_test)),
-          'mse_test: {:.12f}'.format(np.mean(mse_test)),
-          'mse_baseline_test: {:.10f}'.format(np.mean(mse_baseline_test)))
-    print('MSE: {}'.format(mse_str))
-    print('MSE Baseline: {}'.format(mse_baseline_str))
-    if args.save_folder:
-        print('--------------------------------', file=log)
-        print('--------Testing-----------------', file=log)
-        print('--------------------------------', file=log)
-        print('nll_test: {:.10f}'.format(np.mean(loss_test)),
-              'mse_test: {:.12f}'.format(np.mean(mse_test)),
-              'mse_baseline_test: {:.10f}'.format(np.mean(mse_baseline_test)),
-              file=log)
-        print('MSE: {}'.format(mse_str), file=log)
-        print('MSE Baseline: {}'.format(mse_baseline_str), file=log)
-        log.flush()
-
-
 # Train model
 t_total = time.time()
 best_val_loss = np.inf
@@ -482,7 +373,6 @@ print("Best Epoch: {:04d}".format(best_epoch))
 if args.save_folder:
     print("Best Epoch: {:04d}".format(best_epoch), file=log)
     log.flush()
-test()
 if log is not None:
     print(save_folder)
     log.close()

@@ -120,6 +120,14 @@ parser.add_argument('--mask_aug_prob', type=float, default=0,
                 help='mask out trajectories to make predictions')
 parser.add_argument('--charge_only_flag', type=int, default=0,
                 help='Flag to use mass only to supervise')
+parser.add_argument('--ann_dir_val', type=str, default="../../render/output/causal_sim_v9_3_1",
+                help='directory for target video annotation')
+parser.add_argument('--ref_dir_val', type=str, default="../../render/output/reference_v9_3_1",
+                help='directory for reference video annotation.')
+parser.add_argument('--track_dir_val', type=str, default="../../render/output/box_causal_sim_v9_3_1",
+                help='directory for target track annotation')
+parser.add_argument('--ref_track_dir_val', type=str, default="../../render/output/box_reference_v9",
+                help='directory for reference track annotation')
 
 
 args = parser.parse_args()
@@ -165,7 +173,6 @@ else:
 
 train_loader = build_dataloader(args, phase='train', sim_st_idx=args.train_st_idx, sim_ed_idx= args.train_ed_idx)
 valid_loader = build_dataloader(args, phase='val', sim_st_idx=args.val_st_idx, sim_ed_idx=args.val_ed_idx)
-test_loader = build_dataloader(args, phase='test', sim_st_idx=args.test_st_idx, sim_ed_idx=args.test_ed_idx)
 
 if args.encoder == 'mlp':
     model = MLPEncoder(args.num_vis_frm * args.dims, args.hidden,
@@ -370,90 +377,6 @@ def train(epoch, best_val_accuracy, best_val_accuracy_mass, best_val_accuracy_ch
         log.flush()
     return acc_vl, acc_vl_mass, acc_vl_charge
 
-def test():
-    monitor = clevrer_utils.monitor_initialization(args, 'charge')
-    monitor = clevrer_utils.monitor_initialization(args, 'mass', monitor)
-    t = time.time()
-    loss_test = []
-    acc_test = []
-    model.eval()
-    model.load_state_dict(torch.load(model_file))
-    mass_pred_label_dict = {}
-    charge_pred_label_dict = {}
-    for batch_idx, data_list in enumerate(test_loader):
-        output_list = []
-        target_list = []
-        mass_list = []
-        mass_label_list = []
-        with torch.no_grad():
-            for smp_id, smp in enumerate(data_list):
-                data, target, ref2query_list, sim_str, mass_label, valid_flag = smp
-                num_atoms = data.shape[1]
-                # Generate off-diagonal interaction graph
-                off_diag = np.ones([num_atoms, num_atoms]) - np.eye(num_atoms)
-                rel_rec = np.array(encode_onehot(np.where(off_diag)[0]), dtype=np.float32)
-                rel_send = np.array(encode_onehot(np.where(off_diag)[1]), dtype=np.float32)
-                rel_rec = torch.FloatTensor(rel_rec)
-                rel_send = torch.FloatTensor(rel_send)
-                if args.cuda:
-                    data, target = data.cuda(), target.cuda()
-                    rel_rec = rel_rec.cuda()
-                    rel_send = rel_send.cuda()
-                    mass_label = mass_label.cuda()
-                output, pred_mass = model(data, rel_rec, rel_send)
-
-                if args.max_prediction_flag:
-                    output_pool = clevrer_utils.max_pool_prediction(output, num_atoms, ref2query_list)
-                    output_list.append(output_pool.view(-1, args.num_classes))
-                    target_list.append(target[0])
-                else:
-                    output_list.append(output.view(-1, args.num_classes))
-                    target_list.append(target.view(-1))
-                mass_pool = clevrer_utils.pool_mass_prediction(pred_mass, num_atoms, ref2query_list, args.max_pool_mass)
-                mass_list.append(mass_pool.view(-1, args.mass_num))
-                mass_label_list.append(mass_label)
-                
-                mass_pred_to_list = mass_pool.view(-1, args.mass_num).max(1)[1].cpu().numpy().tolist()
-                mass_pred_label_dict[sim_str] = mass_pred_to_list 
-                charge_pred_to_list = output_pool.view(-1, args.num_classes).cpu().numpy().tolist()
-                charge_pred_label_dict[sim_str] = charge_pred_to_list 
-            
-            output = torch.cat(output_list, dim=0)
-            target = torch.cat(target_list, dim=0)
-            # Flatten batch dim
-            output = output.view(-1, args.num_classes)
-            target = target.view(-1)
-            mass = torch.cat(mass_list, dim=0)
-            mass_label = torch.cat(mass_label_list, dim=0)
-
-            loss = F.cross_entropy(output, target, weight=CLASS_WEIGHT)
-            
-            pred = output.data.max(1, keepdim=True)[1]
-            correct = pred.eq(target.data.view_as(pred)).cpu().sum()
-            acc = correct*1.0 / pred.size(0)
-            monitor, acc_list_charge = clevrer_utils.compute_acc_by_class(output, target, args.num_classes, monitor, 'charge')
-            monitor, acc_list_mass = clevrer_utils.compute_acc_by_class(mass, mass_label, args.mass_num, monitor, 'mass')
-
-            loss_test.append(loss.item())
-            acc_test.append(acc)
-    print('--------------------------------')
-    print('--------Testing-----------------')
-    print('--------------------------------')
-    print('loss_test: {:.10f}'.format(np.mean(loss_test)),
-          'acc_test: {:.10f}'.format(np.mean(acc_test)))
-    acc_tr_charge = clevrer_utils.print_monitor(monitor, args.num_classes, 'charge')
-    acc_tr_mass = clevrer_utils.print_monitor(monitor, args.mass_num, 'mass')
-    if args.save_folder:
-        print('--------------------------------', file=log)
-        print('--------Testing-----------------', file=log)
-        print('--------------------------------', file=log)
-        print('loss_test: {:.10f}'.format(np.mean(loss_test)),
-              'acc_test: {:.10f}'.format(np.mean(acc_test)), file=log)
-        log.flush()
-        with open(save_result_path, 'w') as fh:
-            json.dump({'mass': mass_pred_label_dict, 'charge': charge_pred_label_dict}, fh)
-    return np.mean(acc_test)
-
 # Train model
 t_total = time.time()
 best_val_accuracy = -1.
@@ -476,7 +399,6 @@ print("Best Epoch: {:04d}".format(best_epoch))
 if args.save_folder:
     print("Best Epoch: {:04d}".format(best_epoch), file=log)
     log.flush()
-test()
 if log is not None:
     print(save_folder)
     log.close()

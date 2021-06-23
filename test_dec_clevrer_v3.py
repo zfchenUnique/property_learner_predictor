@@ -183,6 +183,10 @@ def test():
             ann = json.load(fh)
         if args.exclude_field_video and len(ann['field_config'])  >0:
             continue
+        full_path = os.path.join(args.prediction_output_dir, sim_str+'.json') 
+        if os.path.isfile(full_path):
+            continue
+
         track_path = os.path.join(args.track_dir, sim_str+'.npy')
         track, vel = load_obj_track(track_path, args.num_vis_frm)
         track = torch.from_numpy(track.astype(np.float32))
@@ -371,7 +375,6 @@ def test():
         
         out_dict['mass'] = mass_out_list
         out_dict['charge'] = charge_out_list
-        full_path = os.path.join(args.prediction_output_dir, sim_str+'.json') 
         out_dir = os.path.dirname(full_path)
         if not os.path.isdir(out_dir):
             os.makedirs(out_dir)

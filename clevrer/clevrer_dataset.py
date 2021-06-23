@@ -121,11 +121,7 @@ def get_edge_rel(obj_list, visible_obj_list=None):
     return edge
 
 class clevrerDataset(Dataset):
-    def __init__(self, args, sim_st_idx, sim_ed_idx, data_aug_flag=False, ref_aug_flag=False):
-        self.ann_dir = args.ann_dir
-        self.track_dir = args.track_dir
-        self.ref_dir = args.ref_dir
-        self.ref_track_dir = args.ref_track_dir
+    def __init__(self, args, sim_st_idx, sim_ed_idx, split, data_aug_flag=False, ref_aug_flag=False, mask_aug_prob=0):
         self.ref_num = args.ref_num
         self.num_vis_frm = args.num_vis_frm
         self.sim_list = list(range(sim_st_idx, sim_ed_idx))
@@ -133,7 +129,19 @@ class clevrerDataset(Dataset):
         self.sim_ed_idx = sim_ed_idx
         self.data_aug_flag = data_aug_flag
         self.ref_aug_flag = ref_aug_flag
+        self.mask_aug_prob = mask_aug_prob
         self.args = args
+        self.split = split
+        if split=='val':
+            self.ann_dir = args.ann_dir_val
+            self.track_dir = args.track_dir_val
+            self.ref_dir = args.ref_dir_val
+            self.ref_track_dir = args.ref_track_dir_val
+        elif split=='train' or split=='test':
+            self.ann_dir = args.ann_dir
+            self.track_dir = args.track_dir
+            self.ref_dir = args.ref_dir
+            self.ref_track_dir = args.ref_track_dir
 
     def __len__(self):
         return self.sim_ed_idx - self.sim_st_idx 
@@ -231,7 +239,7 @@ class clevrerDataset(Dataset):
             obj_ftr = torch.stack(obj_ftr_list, dim=0)
             edge = torch.stack(edge_list, dim=0)
         else:
-            ref2query_list = None
+            ref2query_list = []
             obj_ftr = obj_ftr.unsqueeze(dim=0)
             edge = edge.unsqueeze(dim=0)
         # valid masks for object tracks 
@@ -240,7 +248,11 @@ class clevrerDataset(Dataset):
         valid_flag3 = (obj_ftr[:, :, :, 4] >0).type(torch.uint8) 
         valid_flag4 = (obj_ftr[:, :, :, 4] <1).type(torch.uint8) 
         if self.data_aug_flag:
-            obj_ftr[:, :, :, 3:] = obj_ftr[:, :, :, 3:] + torch.randn(obj_ftr[:, :, :, 3:].size()) * self.args.data_noise_weight
+            obj_ftr[:, :, :, 3:] = obj_ftr[:, :, :, 3:] + torch.rand(obj_ftr[:, :, :, 3:].size()) * self.args.data_noise_weight
+        if np.random.rand() < self.mask_aug_prob:
+            tmp_mask = torch.rand(obj_ftr[:, :, :, 3:].shape) > 0.1 
+            tmp_mask = tmp_mask.type(torch.FloatTensor)
+            obj_ftr[:, :, :, 3:] = obj_ftr[:, :, :, 3:] * tmp_mask
         valid_flag  = valid_flag1 +  valid_flag2  + valid_flag3 + valid_flag4 ==4
         return obj_ftr, edge, ref2query_list, sim_str, mass_label, valid_flag 
 
@@ -347,7 +359,9 @@ def build_dataloader(args, phase='train', sim_st_idx=0, sim_ed_idx=100):
     shuffle_flag = True if phase=='train' else False
     data_aug_flag = True if phase=='train' and args.data_noise_aug  else False
     ref_aug_flag = True if phase=='train' and args.ref_num_aug  else False
-    dataset = clevrerDataset(args, sim_st_idx, sim_ed_idx, data_aug_flag, ref_aug_flag)
+
+    mask_aug_prob = args.mask_aug_prob if phase=='train' and args.mask_aug_prob  else 0
+    dataset = clevrerDataset(args, sim_st_idx, sim_ed_idx, phase,  data_aug_flag, ref_aug_flag, mask_aug_prob)
     data_loader = DataLoader(dataset,  num_workers=args.num_workers, batch_size=args.batch_size,
             shuffle=shuffle_flag, collate_fn=collect_fun)
     return data_loader
