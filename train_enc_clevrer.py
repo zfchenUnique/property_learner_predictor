@@ -336,6 +336,8 @@ def train(epoch, best_val_accuracy, best_val_accuracy_mass, best_val_accuracy_ch
           'loss_train_mass: {:.10f}'.format(np.mean(loss_mass_train)),
           'loss_train_charge: {:.10f}'.format(np.mean(loss_charge_train)),
           'acc_train: {:.10f}'.format(acc_tr),
+          'acc_train_mass: {:.10f}'.format(acc_tr_mass),
+          'acc_train_charge: {:.10f}'.format(acc_tr_charge),
           '\n',
           'loss_val: {:.10f}'.format(np.mean(loss_val)),
           'loss_val_mass: {:.10f}'.format(np.mean(loss_mass_val)),
