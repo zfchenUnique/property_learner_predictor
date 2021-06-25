@@ -125,6 +125,8 @@ parser.add_argument('--exclude_field_video', type=int, default=0,
                 help='exclude videos with fields during training')
 parser.add_argument('--prediction_output_dir', type=str, default="/home/zfchen/code/output/render_output_disk2/prediction_v14",
                 help='directories to save the predictions')
+parser.add_argument('--rand_weight', type=float, default=0.001,
+                help='random weight')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()

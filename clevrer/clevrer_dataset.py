@@ -248,9 +248,9 @@ class clevrerDataset(Dataset):
         valid_flag3 = (obj_ftr[:, :, :, 4] >0).type(torch.uint8) 
         valid_flag4 = (obj_ftr[:, :, :, 4] <1).type(torch.uint8) 
         if self.data_aug_flag:
-            obj_ftr[:, :, :, 3:] = obj_ftr[:, :, :, 3:] + torch.rand(obj_ftr[:, :, :, 3:].size()) * self.args.data_noise_weight
+            obj_ftr[:, :, :, 3:] = obj_ftr[:, :, :, 3:] + torch.randn(obj_ftr[:, :, :, 3:].size()) * self.args.data_noise_weight
         if np.random.rand() < self.mask_aug_prob:
-            tmp_mask = torch.rand(obj_ftr[:, :, :, 3:].shape) > 0.1 
+            tmp_mask = torch.randn(obj_ftr[:, :, :, 3:].shape) > 0.1 
             tmp_mask = tmp_mask.type(torch.FloatTensor)
             obj_ftr[:, :, :, 3:] = obj_ftr[:, :, :, 3:] * tmp_mask
         valid_flag  = valid_flag1 +  valid_flag2  + valid_flag3 + valid_flag4 ==4
