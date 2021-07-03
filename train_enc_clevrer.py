@@ -18,7 +18,7 @@ torch.autograd.set_detect_anomaly(True)
 
 # A pre-define class weight for class balance during calculating loss
 CHARGE_WEIGHT=torch.FloatTensor([0.0253, 0.9516, 1.0])
-MASS_WEIGHT=torch.FloatTensor([0.5, 1.0])
+MASS_WEIGHT=torch.FloatTensor([0.3, 1.0])
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,

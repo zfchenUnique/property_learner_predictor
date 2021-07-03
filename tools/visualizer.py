@@ -118,5 +118,58 @@ def draw_training_log_v3():
         plt.savefig(img_path)
         plt.close()
 
+def draw_training_log_v4():
+    fn_path = '../logs/exp_v15_mass_ref_aug_noise_001/log.txt'
+    fn_noise_path1 = '../logs/exp_v15_mass_only_no_ref/log.txt'
+    fn_list = [fn_path, fn_noise_path1]
+    label_list = ['orginal', 'no ref']
+    for ty in ['mass', 'charge']:
+        for idx, log_path in enumerate(fn_list):
+            output = parse_log_info(log_path)
+            ep_list_mass, acc_train_mass_list, acc_val_mass_list = output[-6:-3]
+            ep_list_charge, acc_train_charge_list, acc_val_charge_list = output[-3:]
+            if ty == 'mass':
+                #plt.plot(ep_list_mass, acc_train_mass_list,
+                #         label=label_list[idx]+'_train', marker="o")
+                plt.plot(ep_list_mass, acc_val_mass_list,
+                         label=label_list[idx]+' val', marker="*")
+                img_path = 'mass_acc_ref.png'
+            else:
+                plt.plot(ep_list_charge, acc_train_charge_list,
+                         label=label_list[idx]+'_train', marker="o")
+                plt.plot(ep_list_charge, acc_val_charge_list,
+                         label=label_list[idx]+'_val', marker="*")
+                img_path = 'charge_pad.png'
+            plt.legend()
+        plt.savefig(img_path)
+        plt.close()
+
+def draw_training_log_v5():
+    fn_path = '../logs/exp_v15_charge_only_ref_aug_full/log.txt'
+    fn_noise_path1 = '../logs/exp_v15_charge_only_no_ref/log.txt'
+    fn_list = [fn_path, fn_noise_path1]
+    label_list = ['orginal', 'no ref']
+    for ty in ['mass', 'charge']:
+        for idx, log_path in enumerate(fn_list):
+            output = parse_log_info(log_path)
+            ep_list_mass, acc_train_mass_list, acc_val_mass_list = output[-6:-3]
+            ep_list_charge, acc_train_charge_list, acc_val_charge_list = output[-3:]
+            if ty == 'mass':
+                #plt.plot(ep_list_mass, acc_train_mass_list,
+                #         label=label_list[idx]+'_train', marker="o")
+                plt.plot(ep_list_mass, acc_val_mass_list,
+                         label=label_list[idx]+' val', marker="*")
+                img_path = 'mass_pad.png'
+            else:
+                #plt.plot(ep_list_charge, acc_train_charge_list,
+                #         label=label_list[idx]+' train', marker="o")
+                plt.plot(ep_list_charge, acc_val_charge_list,
+                         label=label_list[idx]+' val', marker="*")
+                img_path = 'charge_acc_ref.png'
+            plt.legend()
+        plt.savefig(img_path)
+        plt.close()
+
+
 if __name__ == '__main__':
-    draw_training_log_v2()
+    draw_training_log_v5()

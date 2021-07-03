@@ -88,7 +88,7 @@ def assigning_charge_to_objects(out_dict, square_edges):
         if 'charge' not in obj_info:
             out_dict['config'][obj_id]['charge'] = 0
 
-def parse_results(prp_config_dir, des_prp_dir, raw_result_charge_path, raw_result_mass_path):
+def parse_results(prp_config_dir, des_prp_dir, raw_result_charge_path, raw_result_mass_path, gt_flag):
     with open(raw_result_charge_path, 'r') as fh:
         ann_charge = json.load(fh)['charge']
     with open(raw_result_mass_path, 'r') as fh:
@@ -97,7 +97,10 @@ def parse_results(prp_config_dir, des_prp_dir, raw_result_charge_path, raw_resul
         os.makedirs(des_prp_dir)
     sim_str_list = sorted(list(ann_charge.keys()))
     for test_id, sim_str in enumerate(sim_str_list):
-        src_config_full_path = os.path.join(prp_config_dir, sim_str +'.json') 
+        if not gt_flag: 
+            src_config_full_path = os.path.join(prp_config_dir, sim_str +'.json') 
+        else:
+            src_config_full_path = os.path.join(prp_config_dir, sim_str, 'annotations', 'annotation.json')
         des_config_full_path = os.path.join(des_prp_dir, sim_str +'.json') 
         with open(src_config_full_path, 'r') as  src_fh:
             src_config = json.load(src_fh)['config']
@@ -130,9 +133,11 @@ if __name__=='__main__':
     parser.add_argument('--raw_result_mass_path', type=str, default='logs/exp19/raw_prediction_charge.json')
     parser.add_argument('--prp_config_dir', type=str, default='/home/zfchen/code/output/ns-vqa_output/v14_prp/config')
     parser.add_argument('--des_prp_dir', type=str, default='/home/zfchen/code/output/ns-vqa_output/v14_prp_pred_v2/config')
+    parser.add_argument('--gt_flag', type=int, default=0)
     args = parser.parse_args()
     raw_result_charge_path = args.raw_result_charge_path
     raw_result_mass_path = args.raw_result_mass_path
     prp_config_dir = args.prp_config_dir
-    des_prp_dir = args.des_prp_dir 
-    parse_results(prp_config_dir, des_prp_dir, raw_result_charge_path, raw_result_mass_path)
+    des_prp_dir = args.des_prp_dir
+    gt_flag = args.gt_flag
+    parse_results(prp_config_dir, des_prp_dir, raw_result_charge_path, raw_result_mass_path, gt_flag)

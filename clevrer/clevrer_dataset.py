@@ -184,15 +184,23 @@ class clevrerDataset(Dataset):
 
         if self.args.load_reference_flag: 
             obj_ftr_list, edge_list, ref2query_list = load_reference_ftr_sim(self.ref_dir, sim_str, ann, self.args)
+            if self.ref_aug_flag:
+                ref_num= len(obj_ftr_list) 
+                smp_num = random.randint(1, ref_num)
+                smp_id_list = random.sample(list(range(ref_num)), smp_num)
+                obj_ftr_list = [obj_ftr_list[smp_id] for smp_id in smp_id_list]
+                edge_list = [edge_list[smp_id] for smp_id in smp_id_list]
+                ref2query_list = [ref2query_list[smp_id] for smp_id in smp_id_list]
             obj_ftr_list.insert(0, obj_ftr)
             edge_list.insert(0, edge)
             obj_ftr = torch.stack(obj_ftr_list, dim=0)
             edge = torch.stack(edge_list, dim=0)
         else:
-            ref2query_list = None
+            ref2query_list = []
             obj_ftr = obj_ftr.unsqueeze(dim=0)
             edge = edge.unsqueeze(dim=0)
-        return obj_ftr, edge, ref2query_list, sim_str, mass_label
+        valid_flag = None
+        return obj_ftr, edge, ref2query_list, sim_str, mass_label, valid_flag 
 
     def __getitem_render__(self, index):
         """
