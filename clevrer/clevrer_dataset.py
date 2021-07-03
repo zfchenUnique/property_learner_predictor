@@ -186,6 +186,8 @@ class clevrerDataset(Dataset):
             obj_ftr_list, edge_list, ref2query_list = load_reference_ftr_sim(self.ref_dir, sim_str, ann, self.args)
             if self.ref_aug_flag:
                 ref_num= len(obj_ftr_list) 
+                if ref_num==0:
+                    print(ann_path)
                 smp_num = random.randint(1, ref_num)
                 smp_id_list = random.sample(list(range(ref_num)), smp_num)
                 obj_ftr_list = [obj_ftr_list[smp_id] for smp_id in smp_id_list]
@@ -367,7 +369,6 @@ def build_dataloader(args, phase='train', sim_st_idx=0, sim_ed_idx=100):
     shuffle_flag = True if phase=='train' else False
     data_aug_flag = True if phase=='train' and args.data_noise_aug  else False
     ref_aug_flag = True if phase=='train' and args.ref_num_aug  else False
-
     mask_aug_prob = args.mask_aug_prob if phase=='train' and args.mask_aug_prob  else 0
     dataset = clevrerDataset(args, sim_st_idx, sim_ed_idx, phase,  data_aug_flag, ref_aug_flag, mask_aug_prob)
     data_loader = DataLoader(dataset,  num_workers=args.num_workers, batch_size=args.batch_size,
