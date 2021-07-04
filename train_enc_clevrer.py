@@ -18,7 +18,6 @@ torch.autograd.set_detect_anomaly(True)
 
 # A pre-define class weight for class balance during calculating loss
 CHARGE_WEIGHT=torch.FloatTensor([0.0253, 0.9516, 1.0])
-MASS_WEIGHT=torch.FloatTensor([0.3, 1.0])
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -128,12 +127,16 @@ parser.add_argument('--track_dir_val', type=str, default="../../render/output/bo
                 help='directory for target track annotation')
 parser.add_argument('--ref_track_dir_val', type=str, default="../../render/output/box_reference_v9",
                 help='directory for reference track annotation')
+parser.add_argument('--light_weight', type=float, default=0.3,
+                help='class weight for light objects')
 
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 args.factor = not args.no_factor
 print(args)
+
+MASS_WEIGHT=torch.FloatTensor([args.light_weight, 1.0])
 
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)

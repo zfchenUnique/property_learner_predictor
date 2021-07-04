@@ -1,21 +1,26 @@
 GPU_ID=$1
 CUDA_VISIBLE_DEVICES=${GPU_ID} python test_enc_clevrer_v2.py \
     --load_reference_flag 1 \
-    --test_st_idx 3000 \
-    --test_ed_idx 4000 \
+    --test_st_idx 0 \
+    --test_ed_idx 5000 \
     --dims 11 \
     --sim_data_flag 0 \
     --num_workers 0 \
     --batch_size 1 \
-    --proposal_flag 1 \
-    --ref_dir /home/zfchen/code/output/ns-vqa_output/v14_prp_reference/config \
-    --ref_track_dir /home/zfchen/code/output/ns-vqa_output/v14_prp_reference/tracks \
-    --ann_dir /home/zfchen/code/output/ns-vqa_output/v14_prp_refine/config \
-    --track_dir /home/zfchen/code/output/ns-vqa_output/v14_prp_refine/tracks \
+    --proposal_flag 0 \
+    --ann_dir /home/zfchen/code/output/render_output/causal_sim_v11_4 \
+    --ref_dir /home/zfchen/code/output/render_output/reference_v11_4 \
+    --track_dir /home/zfchen/code/output/render_output/box_v11 \
+    --ref_track_dir /home/zfchen/code/output/render_output/box_reference_v11 \
+    --version v11_debug_gt \
     --charge_best_flag 1 \
-    --save-folder logs/exp_v15_charge_only_ref_aug \
+    --save-folder logs/exp_v15_charge_only_ref_aug_full \
     #--mass_best_flag 1 \
-    #--save-folder logs/exp_v15_mass_only_noise_001 \
+    #--save-folder logs/exp_v15_mass_ref_aug_noise_001 \
+    #--charge_best_flag 1 \
+    #--save-folder logs/exp_v15_charge_only_ref_aug_full \
+    #--mass_best_flag 1 \
+    #--save-folder logs/exp_v15_mass_ref_aug_noise_001 \
     #--save-folder logs/exp19 \
     #--save-folder logs/exp_v15_encode_noise_0001 \
     #--save-folder logs/exp_v15_encode_ref_1_4 \
