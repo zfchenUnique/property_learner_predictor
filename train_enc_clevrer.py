@@ -16,8 +16,6 @@ from clevrer.clevrer_dataset import build_dataloader
 import clevrer.utils as clevrer_utils
 torch.autograd.set_detect_anomaly(True)
 
-# A pre-define class weight for class balance during calculating loss
-CHARGE_WEIGHT=torch.FloatTensor([0.0253, 0.9516, 1.0])
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -133,6 +131,8 @@ parser.add_argument('--train_st_idx2', type=int, default=0,
                 help='Start index of the training videos.')
 parser.add_argument('--train_ed_idx2', type=int, default=100,
                 help='End index of the training videos.')
+parser.add_argument('--uncharge_weight', type=float, default=0.025,
+                help='class weight for uncharged objects')
 
 
 args = parser.parse_args()
@@ -140,7 +140,9 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 args.factor = not args.no_factor
 print(args)
 
+# A pre-define class weight for class balance during calculating loss
 MASS_WEIGHT=torch.FloatTensor([args.light_weight, 1.0])
+CHARGE_WEIGHT=torch.FloatTensor([args.uncharge_weight, 1.0, 1.0])
 
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
