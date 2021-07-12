@@ -191,7 +191,7 @@ class clevrerDataset(Dataset):
         fout = open(self.valid_info_ref_fn, 'w')
         for idx, sim_id in enumerate(self.sim_list):
             if idx % 500 ==0:
-                print('preparing the %d/%d videos\n'%(idx, self.sim_ed_idx - self.sim_st_idx))
+                print('preparing the %d/%d videos\n'%(idx, len(self.sim_list)))
             sim_str = 'sim_%05d'%(sim_id)
             self.object_ref_anns[sim_id] = {}
             self.object_ref_tracks[sim_id] = {} 
