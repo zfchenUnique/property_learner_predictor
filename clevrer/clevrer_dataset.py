@@ -309,6 +309,11 @@ def load_reference_ftr(ref_dir, ref_track_dir, sim_str, ann_query, args):
         with open(ann_path, 'r') as fh:
             ann = json.load(fh)
         ref2query = map_ref_to_query(ann_query['config'], ann['config']) 
+        if len(ref2query)!=len(ann['config']):
+            print(sim_str)
+            print(sub_dir)
+            print(ref_dir)
+            print(ref_track_dir)
         visible_list = list(ref2query.values())
         shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
         shape_mat = np.expand_dims(np.array(shape_emb), axis=1)

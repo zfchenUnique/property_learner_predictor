@@ -125,7 +125,7 @@ parser.add_argument('--track_dir_val', type=str, default="../../render/output/bo
                 help='directory for target track annotation')
 parser.add_argument('--ref_track_dir_val', type=str, default="../../render/output/box_reference_v9",
                 help='directory for reference track annotation')
-parser.add_argument('--light_weight', type=float, default=0.3,
+parser.add_argument('--light_weight', type=float, default=0.15,
                 help='class weight for light objects')
 parser.add_argument('--train_st_idx2', type=int, default=0,
                 help='Start index of the training videos.')
