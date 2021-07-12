@@ -124,9 +124,15 @@ class clevrerDataset(Dataset):
     def __init__(self, args, sim_st_idx, sim_ed_idx, split, data_aug_flag=False, ref_aug_flag=False, mask_aug_prob=0):
         self.ref_num = args.ref_num
         self.num_vis_frm = args.num_vis_frm
+        #self.sim_st_idx = sim_st_idx
+        #self.sim_ed_idx = sim_ed_idx
         self.sim_list = list(range(sim_st_idx, sim_ed_idx))
-        self.sim_st_idx = sim_st_idx
-        self.sim_ed_idx = sim_ed_idx
+        # adding extra training idx
+        if split=='train':
+            sup_list = list(range(args.train_st_idx2, args.train_ed_idx2))
+            new_train_list = sorted(list(set(self.sim_list + sup_list )))
+            self.sim_list = new_train_list
+
         self.data_aug_flag = data_aug_flag
         self.ref_aug_flag = ref_aug_flag
         self.mask_aug_prob = mask_aug_prob
@@ -144,7 +150,8 @@ class clevrerDataset(Dataset):
             self.ref_track_dir = args.ref_track_dir
 
     def __len__(self):
-        return self.sim_ed_idx - self.sim_st_idx 
+        #return self.sim_ed_idx - self.sim_st_idx 
+        return len(self.sim_list)
 
     def __getitem__(self, index):
         if self.args.sim_data_flag:

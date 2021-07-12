@@ -42,7 +42,7 @@ parser.add_argument('--no-factor', action='store_true', default=False,
 parser.add_argument('--suffix', type=str, default='_springs',
                     help='Suffix for training data (e.g. "_charged".')
 parser.add_argument('--dropout', type=float, default=0.5,
-                    help='Dropout rate (1 - keep probability).')
+                 help='Dropout rate (1 - keep probability).')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='How many batches to wait before logging.')
 parser.add_argument('--edge-types', type=int, default=3,
@@ -129,6 +129,10 @@ parser.add_argument('--ref_track_dir_val', type=str, default="../../render/outpu
                 help='directory for reference track annotation')
 parser.add_argument('--light_weight', type=float, default=0.3,
                 help='class weight for light objects')
+parser.add_argument('--train_st_idx2', type=int, default=0,
+                help='Start index of the training videos.')
+parser.add_argument('--train_ed_idx2', type=int, default=100,
+                help='End index of the training videos.')
 
 
 args = parser.parse_args()
