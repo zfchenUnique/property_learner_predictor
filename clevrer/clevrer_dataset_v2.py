@@ -139,8 +139,12 @@ class clevrerDataset(Dataset):
         self.ref_num = args.ref_num
         self.num_vis_frm = args.num_vis_frm
         self.sim_list = list(range(sim_st_idx, sim_ed_idx))
-        self.sim_st_idx = sim_st_idx
-        self.sim_ed_idx = sim_ed_idx
+        if phase=='train':
+            sup_list = list(range(args.train_st_idx2, args.train_ed_idx2))
+            new_train_list = sorted(list(set(self.sim_list + sup_list )))
+            self.sim_list = new_train_list
+        #self.sim_st_idx = sim_st_idx
+        #self.sim_ed_idx = sim_ed_idx
         self.args = args
         self.phase = phase
         self.valid_info_fn = '%s_valid_idx.txt'%phase
@@ -165,7 +169,7 @@ class clevrerDataset(Dataset):
             self.valid_idx.append((a, b))
         for idx, sim_id in enumerate(self.sim_list):
             if idx % 500 ==0:
-                print('preparing the %d/%d videos\n'%(idx, self.sim_ed_idx - self.sim_st_idx))
+                print('preparing the %d/%d videos\n'%(idx, len(self.sim_list)))
             sim_str = 'sim_%05d'%(sim_id)
             # load object track
             track_path = os.path.join(self.track_dir, sim_str+'.npy')
@@ -253,7 +257,7 @@ class clevrerDataset(Dataset):
         fout = open(self.valid_info_fn, 'w')
         for idx, sim_id in enumerate(self.sim_list):
             if idx % 500 ==0:
-                print('preparing the %d/%d videos\n'%(idx, self.sim_ed_idx - self.sim_st_idx))
+                print('preparing the %d/%d videos\n'%(idx, len(self.sim_list)))
             sim_str = 'sim_%05d'%(sim_id)
             # object ann
             ann_path = os.path.join(self.ann_dir, sim_str, 'annotations', 'annotation.json')
