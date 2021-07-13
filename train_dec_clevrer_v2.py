@@ -123,6 +123,12 @@ parser.add_argument('--ref_track_dir_val', type=str, default="../../render/outpu
                 help='directory for reference track annotation')
 parser.add_argument('--use_ref_flag', type=int, default=0,
                 help='Use reference_frames to learn dynamics')
+parser.add_argument('--train_st_idx2', type=int, default=0,
+                help='Start index of the training videos.')
+parser.add_argument('--train_ed_idx2', type=int, default=100,
+                help='End index of the training videos.')
+parser.add_argument('--data_noise_weight', type=float, default=0.001,
+                help='add random noise for data augumentation.')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
