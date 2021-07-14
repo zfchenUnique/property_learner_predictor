@@ -253,9 +253,12 @@ def test():
                 # num_obj,  num_frame, box_dim
                 # objs_gt = torch.stack(objs_gt, dim=1) 
                 objs_pred = torch.stack(objs_pred, dim=1) 
-                #sim_str_full = os.path.join(args.vis_dir, sim_str+'_'+str(what_if)+'_'+str(mass_val) )
-                #plot_video_trajectories(objs_gt[:, pred_st:pred_st+args.pred_frm_num], loc_dim_st=0, save_id=sim_str_full+'_gt')
-                #plot_video_trajectories(objs_pred, loc_dim_st=0, save_id=sim_str_full+'_query')
+                sim_str_full = os.path.join(args.vis_dir, sim_str)
+                if args.visualize_flag:
+                    objs_gt_mat = torch.stack(objs_gt, dim=1)
+                    plot_video_trajectories(objs_gt_mat[:, pred_st:pred_st+args.pred_frm_num], loc_dim_st=0, save_id=sim_str_full+'_gt')
+                    plot_video_trajectories(objs_pred, loc_dim_st=0, save_id=sim_str_full+'_query')
+                    pdb.set_trace()
                 out_dict['future'] = {'what_if': -1, 'trajectories': objs_pred.numpy().tolist()} 
             if what_if==-1:
                 continue
@@ -310,9 +313,9 @@ def test():
                 # num_obj,  num_frame, box_dim
                 #objs_gt = torch.stack(objs_gt, dim=1) 
                 objs_pred = torch.stack(objs_pred, dim=1) 
-                sim_str_full = os.path.join(args.vis_dir, sim_str+'_'+str(what_if)+'_'+str(mass_val) )
-                #plot_video_trajectories(objs_gt[:, pred_st:pred_st+args.pred_frm_num], loc_dim_st=0, save_id=sim_str_full+'_gt')
-                #plot_video_trajectories(objs_pred, loc_dim_st=0, save_id=sim_str_full+'_query')
+                sim_str_full = os.path.join(args.vis_dir, sim_str+'_mass_'+str(what_if)+'_'+str(mass_val) )
+                if args.visualize_flag:
+                    plot_video_trajectories(objs_pred, loc_dim_st=0, save_id=sim_str_full)
                 tmp_output = {'what_if': what_if, 'mass': mass_val, 'collisions': [],'trajectories': objs_pred.numpy().tolist()}
                 mass_out_list.append(tmp_output)    
             # counterfactual charge
@@ -369,9 +372,9 @@ def test():
                 # num_obj,  num_frame, box_dim
                 #objs_gt = torch.stack(objs_gt, dim=1) 
                 objs_pred = torch.stack(objs_pred, dim=1) 
-                sim_str_full = os.path.join(args.vis_dir, sim_str+'_'+str(what_if)+'_'+str(charge_val) )
-                #plot_video_trajectories(objs_gt[:, pred_st:pred_st+args.pred_frm_num], loc_dim_st=0, save_id=sim_str_full+'_gt')
-                #plot_video_trajectories(objs_pred, loc_dim_st=0, save_id=sim_str_full+'_query')
+                sim_str_full = os.path.join(args.vis_dir, sim_str+'_charge_'+str(what_if)+'_'+str(charge_val) )
+                if args.visualize_flag:
+                    plot_video_trajectories(objs_pred, loc_dim_st=0, save_id=sim_str_full)
                 tmp_output = {'what_if': what_if, 'charge': charge_val, 'collisions': [],'trajectories': objs_pred.numpy().tolist()}    
                 charge_out_list.append(tmp_output)
         
