@@ -186,7 +186,7 @@ def test():
         if args.exclude_field_video and len(ann['field_config'])  >0:
             continue
         full_path = os.path.join(args.prediction_output_dir, sim_str+'.json') 
-        if os.path.isfile(full_path):
+        if os.path.isfile(full_path) and not args.visualize_flag:
             continue
 
         track_path = os.path.join(args.track_dir, sim_str+'.npy')

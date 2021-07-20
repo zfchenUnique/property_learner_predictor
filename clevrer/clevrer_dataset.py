@@ -280,7 +280,8 @@ def map_ref_to_query(obj_list_query, obj_list_ref):
             if obj_info1['color']==obj_info2['color'] and obj_info1['shape']==obj_info2['shape'] and obj_info1['material']==obj_info2['material']:
                 ref2query[idx1]=idx2
     if len(ref2query)!=len(obj_list_ref):
-        print('Fail to find some correspondence.')
+        pass
+        #print('Fail to find some correspondence.')
     #assert len(ref2query)==len(obj_list_ref), "every reference object should find their corresponding objects"
     return ref2query
 
@@ -309,11 +310,12 @@ def load_reference_ftr(ref_dir, ref_track_dir, sim_str, ann_query, args):
         with open(ann_path, 'r') as fh:
             ann = json.load(fh)
         ref2query = map_ref_to_query(ann_query['config'], ann['config']) 
-        if len(ref2query)!=len(ann['config']):
-            print(sim_str)
-            print(sub_dir)
-            print(ref_dir)
-            print(ref_track_dir)
+        #if len(ref2query)!=len(ann['config']):
+        #    print(sim_str)
+        #    print(sub_dir)
+        #    print(ref_dir)
+        #    print(ref_track_dir)
+            #pdb.set_trace()
         visible_list = list(ref2query.values())
         shape_emb = [ get_one_hot_for_shape(obj_info['shape']) for obj_info in ann['config']]
         shape_mat = np.expand_dims(np.array(shape_emb), axis=1)
@@ -379,6 +381,8 @@ def collect_fun(data_list):
 
 def build_dataloader(args, phase='train', sim_st_idx=0, sim_ed_idx=100):
     shuffle_flag = True if phase=='train' else False
+    #print('DEBUG!')
+    #pdb.set_trace()
     data_aug_flag = True if phase=='train' and args.data_noise_aug  else False
     ref_aug_flag = True if phase=='train' and args.ref_num_aug  else False
     mask_aug_prob = args.mask_aug_prob if phase=='train' and args.mask_aug_prob  else 0
