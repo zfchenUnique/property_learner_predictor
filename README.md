@@ -1,9 +1,9 @@
 # Physical Property Learner and Dynamic Predictor
-This repo contains the physical property learner and dynamic predictor of Compositional Physics Learner in ComPhy[paper](https://openreview.net/pdf?id=wgQoeAdyk11)
+ This repo contains the physical property learner and dynamic predictor of Compositional Physics Learner in ComPhy [paper](https://openreview.net/pdf?id=wgQoeAdyk11)
 
 ### Data preparation
-- Download training and validation object tracks of [target videos](https://drive.google.com/file/d/1hr_x85_FqKp17z7ZdNOoKrQK3EthbkiQ/view?usp=sharing) and [reference videos](https://drive.google.com/file/d/1F16qhzsyVtGUjYTAZhWkL6RhZx_adSEv/view?usp=sharing) extracted from Mask-RCNN
-- Download testing object tracks of [target videos](https://drive.google.com/file/d/1jP_kYzZbWuSHXox21o8doe-qqAERQWKP/view?usp=sharing) and [reference videos](https://drive.google.com/file/d/1kRh5t9k0U6v_2yZEMWvtPdPPpF6hp4H7/view?usp=sharing) extracted from Mask-RCNN
+- Download training and validation object tracks of [target videos](https://drive.google.com/file/d/1hr_x85_FqKp17z7ZdNOoKrQK3EthbkiQ/view?usp=sharing) and [reference videos](https://drive.google.com/file/d/1F16qhzsyVtGUjYTAZhWkL6RhZx_adSEv/view?usp=sharing) extracted from Mask-RCNN;
+- Download testing object tracks of [target videos](https://drive.google.com/file/d/1jP_kYzZbWuSHXox21o8doe-qqAERQWKP/view?usp=sharing) and [reference videos](https://drive.google.com/file/d/1kRh5t9k0U6v_2yZEMWvtPdPPpF6hp4H7/view?usp=sharing) extracted from Mask-RCNN;
 
 ### Run experiments on physical property learner
 Train mass predictor
@@ -36,8 +36,6 @@ Test on dynamic predictor
 ```
 sh scripts/test_dynamic_predictor.sh
 ```
-
-
 
 ### Acknowledgement
 Much code is borrowed from Thomas Kipf's [NRI repo](https://github.com/ethanfetaya/NRI.git).
