@@ -3,7 +3,7 @@
 
 ### Data preparation
 - Download training and validation object tracks of [target videos](https://drive.google.com/file/d/1hr_x85_FqKp17z7ZdNOoKrQK3EthbkiQ/view?usp=sharing) and [reference videos](https://drive.google.com/file/d/1F16qhzsyVtGUjYTAZhWkL6RhZx_adSEv/view?usp=sharing) extracted from Mask-RCNN;
-- Download testing object tracks of [target videos](https://drive.google.com/file/d/1jP_kYzZbWuSHXox21o8doe-qqAERQWKP/view?usp=sharing) and [reference videos](https://drive.google.com/file/d/1kRh5t9k0U6v_2yZEMWvtPdPPpF6hp4H7/view?usp=sharing) extracted from Mask-RCNN;
+- Download testing object tracks of [target videos](https://drive.google.com/file/d/1jP_kYzZbWuSHXox21o8doe-qqAERQWKP/view?usp=sharing) and [reference videos](https://drive.google.com/file/d/1kRh5t9k0U6v_2yZEMWvtPdPPpF6hp4H7/view?usp=sharing) extracted from Mask-RCNN.
 
 ### Run experiments on physical property learner
 Train mass predictor
