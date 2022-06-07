@@ -149,7 +149,7 @@ class clevrerDataset(Dataset):
         self.phase = phase
         self.valid_info_fn = '%s_valid_idx.txt'%phase
         # Always generate training and testing splits
-        if not os.path.isfile(self.valid_info_fn) or 1:
+        if not os.path.isfile(self.valid_info_fn):
             self.__generate_valid_idx_for_render_decoder()
         else:
             self.__read_valid_idx_for_render_decoder()
