@@ -129,6 +129,10 @@ parser.add_argument('--train_ed_idx2', type=int, default=100,
                 help='End index of the training videos.')
 parser.add_argument('--data_noise_weight', type=float, default=0.001,
                 help='add random noise for data augumentation.')
+parser.add_argument('--proposal_flag', type=int, default=0,
+                help='proposal flag for dynamic learner')
+parser.add_argument('--propnet_flag', type=int, default=0,
+                help='propnet flag for dynamic learner')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()

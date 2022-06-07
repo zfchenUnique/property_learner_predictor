@@ -100,7 +100,7 @@ def get_edge_rel(obj_list, visible_obj_list=None):
     """
     num_obj = len(obj_list)
     edge = np.zeros((num_obj, num_obj ))
-    charge_id_list = [ obj_id for obj_id, obj_info in enumerate(obj_list) if obj_info['charge']!=0]
+    charge_id_list = [ obj_id for obj_id, obj_info in enumerate(obj_list) if 'charge' in obj_info and obj_info['charge']!=0]
     for id1 in charge_id_list:
         for id2 in charge_id_list:
             if id1==id2:
@@ -149,7 +149,7 @@ class clevrerDataset(Dataset):
         self.phase = phase
         self.valid_info_fn = '%s_valid_idx.txt'%phase
         # Always generate training and testing splits
-        if not os.path.isfile(self.valid_info_fn):
+        if not os.path.isfile(self.valid_info_fn) or True:
             self.__generate_valid_idx_for_render_decoder()
         else:
             self.__read_valid_idx_for_render_decoder()
@@ -260,10 +260,13 @@ class clevrerDataset(Dataset):
                 print('preparing the %d/%d videos\n'%(idx, len(self.sim_list)))
             sim_str = 'sim_%05d'%(sim_id)
             # object ann
-            ann_path = os.path.join(self.ann_dir, sim_str, 'annotations', 'annotation.json')
+            if not self.args.proposal_flag:
+                ann_path = os.path.join(self.ann_dir, sim_str, 'annotations', 'annotation.json')
+            else:
+                ann_path = os.path.join(self.ann_dir, sim_str + '.json')
             with open(ann_path, 'r') as fh:
                 ann = json.load(fh)
-                if self.args.exclude_field_video and len(ann['field_config'])  >0:
+                if self.args.exclude_field_video and 'field_config' in ann and len(ann['field_config'])  >0:
                     continue
                 self.object_anns[sim_id] = {'config': ann['config']}
             # load object track
@@ -343,7 +346,7 @@ class clevrerDataset(Dataset):
         shape_mat = np.expand_dims(np.array(shape_emb), axis=1)
         shape_mat_exp = np.repeat(shape_mat, n_his+n_roll+1, axis=1)
         # mass info
-        mass_list = [obj_info['mass']==5 for obj_info in ann['config']]
+        mass_list = [(not self.args.propnet_flag) and 'mass' in obj_info and obj_info['mass']==5 for obj_info in ann['config']]
         mass_label = np.expand_dims(np.array(mass_list).astype(np.float32), axis=1)
         mass_label_exp = np.repeat(mass_label, n_his+n_roll+1, axis=1)
         mass_label_exp = np.expand_dims(mass_label_exp, axis=2)
@@ -369,6 +372,9 @@ class clevrerDataset(Dataset):
         edge = get_edge_rel(ann['config'])
         obj_ftr = obj_ftr.astype(np.float32)
         edge = edge.astype(np.long)
+        if self.args.propnet_flag:
+            edge = edge * 0
+
         obj_ftr = torch.from_numpy(obj_ftr)
         edge = torch.from_numpy(edge)
         # batch size 1  & time slide 1
